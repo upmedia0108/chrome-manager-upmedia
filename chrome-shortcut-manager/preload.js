@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('app', {
   getRunningProfiles: () => ipcRenderer.invoke('get-running-profiles'),
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  cleanGhostProfiles: () => ipcRenderer.invoke('clean-ghost-profiles'),
   killAllChrome: () => ipcRenderer.invoke('kill-all-chrome'),
   checkShortcutExists: (name) => ipcRenderer.invoke('check-shortcut-exists', name),
   pickUserDataFolder: () => ipcRenderer.invoke('pick-user-data-folder'),

@@ -4,6 +4,10 @@ Tất cả thay đổi theo từng phiên bản.
 
 ---
 
+## v1.9.2
+- **Khuyến nghị Basic/Pro đúng sức máy:** công thức mới chỉ gợi ý Basic khi `RAM < 8GB` HOẶC `CPU ≤ 2 nhân` HOẶC (`RAM < 16GB` và `>80 Chrome`). Trước đây chỉ cần >50 Chrome là khuyên Basic kể cả máy khỏe → đã sửa.
+- **Dọn "profile ma":** `chromeProfiles.removeProfilesFromLocalState()` xóa các entry Chrome còn nhớ trong Local State nhưng thư mục đã mất. Nút "Dọn profile ma" trên thanh so sánh (IPC `clean-ghost-profiles`, đóng Chrome trước khi dọn). Handler `delete-chrome-profile` nay cũng dọn Local State → không sinh profile ma nữa.
+
 ## v1.9.0
 - **Tự động cập nhật (electron-updater + GitHub Releases, repo Public):** app tự kiểm tra bản mới khi khởi động, tải nền và hỏi khởi động lại để cập nhật. Nút "Kiểm tra cập nhật" trong Cài đặt. IPC `check-for-updates`; `build.publish` github `releaseType: release`.
 - **CI đổi mới:** version = `<major>.<minor>.<run_number>` (KHÔNG commit ngược về repo → máy owner push lúc nào cũng trơn tru, không kẹt "cần pull"); `electron-builder --publish always` tự tạo Release kèm `latest.yml`. Telegram chuyển thành tùy chọn (chỉ chạy nếu có secret).

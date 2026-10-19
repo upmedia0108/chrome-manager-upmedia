@@ -319,10 +319,32 @@ ipcMain.handle('delete-chrome-profile', async (_, profilePath, profileDirectory,
   try {
     if (fs.existsSync(profilePath)) fs.rmSync(profilePath, { recursive: true, force: true });
     configStore.deleteProfileConfig(profileDirectory);
+    // Sửa gốc: dọn luôn tên profile khỏi Local State để Chrome không còn nhớ (tránh sinh "profile ma")
+    try {
+      const udp = chromeProfiles.findUserDataPath(configStore.getConfig().settings?.chromeUserDataPath || null);
+      if (udp) chromeProfiles.removeProfilesFromLocalState(udp, [profileDirectory]);
+    } catch { /* best-effort */ }
     return { success: true };
   } catch (err) {
     return { success: false, error: 'Không xóa được: ' + err.message };
   }
+});
+
+// Dọn "profile ma": đóng toàn bộ Chrome rồi xóa các entry Chrome còn nhớ nhưng thư mục đã mất
+ipcMain.handle('clean-ghost-profiles', async () => {
+  const config = configStore.getConfig();
+  const customPath = config.settings?.chromeUserDataPath || null;
+  // Phải đóng hẳn Chrome để Chrome không ghi đè lại Local State
+  await new Promise(resolve => { exec('taskkill /F /IM chrome.exe /T', () => resolve()); });
+  await new Promise(r => setTimeout(r, 800));
+  let userDataPath, missing;
+  try { ({ userDataPath, missing } = chromeProfiles.scanProfiles(customPath)); }
+  catch (err) { return { success: false, error: err.message }; }
+  const dirs = (missing || []).map(m => m.profileDirectory);
+  if (!dirs.length) return { success: true, removed: 0 };
+  const res = chromeProfiles.removeProfilesFromLocalState(userDataPath, dirs);
+  for (const d of dirs) configStore.deleteProfileConfig(d);
+  return { success: res.ok, removed: res.removed || 0, error: res.error || null };
 });
 
 ipcMain.handle('kill-all-chrome', async () => {

@@ -155,6 +155,31 @@ function scanProfiles(customUserDataPath) {
   };
 }
 
+// Xóa các "profile ma" khỏi Local State của Chrome (các entry Chrome còn nhớ nhưng thư mục đã mất).
+// LƯU Ý: chỉ nên gọi khi Chrome ĐÃ ĐÓNG, nếu không Chrome có thể ghi đè lại Local State khi thoát.
+function removeProfilesFromLocalState(userDataPath, dirs) {
+  try {
+    const lsPath = path.join(userDataPath, 'Local State');
+    if (!fs.existsSync(lsPath)) return { ok: false, removed: 0 };
+    const ls = JSON.parse(fs.readFileSync(lsPath, 'utf8'));
+    if (!ls.profile || !ls.profile.info_cache) return { ok: false, removed: 0 };
+    const targets = new Set(dirs || []);
+    let removed = 0;
+    for (const d of targets) {
+      if (ls.profile.info_cache[d] !== undefined) { delete ls.profile.info_cache[d]; removed++; }
+    }
+    // Dọn thêm ở các danh sách phụ nếu có
+    if (Array.isArray(ls.profile.profiles_order))
+      ls.profile.profiles_order = ls.profile.profiles_order.filter(d => !targets.has(d));
+    if (Array.isArray(ls.profile.last_active_profiles))
+      ls.profile.last_active_profiles = ls.profile.last_active_profiles.filter(d => !targets.has(d));
+    if (removed > 0) fs.writeFileSync(lsPath, JSON.stringify(ls), 'utf8');
+    return { ok: true, removed };
+  } catch (e) {
+    return { ok: false, removed: 0, error: e.message };
+  }
+}
+
 // Hàm logic thuần (có test): từ danh sách Chrome tự khai + tập dir đã quét → profile bị thiếu + lý do.
 // existsFn cho phép test không phụ thuộc ổ đĩa thật.
 function computeMissingProfiles(machineProfiles, foundDirs, userDataPath, existsFn) {
@@ -181,4 +206,5 @@ module.exports = {
   getNextProfileDirectory,
   getInfoCacheProfiles,
   computeMissingProfiles,
+  removeProfilesFromLocalState,
 };

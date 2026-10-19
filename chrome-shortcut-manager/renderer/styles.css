@@ -544,6 +544,7 @@ textarea.np-input{min-height:64px;line-height:1.5}
 .scan-compare .sc-main b{font-weight:800}
 .scan-compare .sc-miss{color:var(--danger)}
 .scan-compare .sc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.scan-compare .sc-actions{display:inline-flex;gap:7px;flex-wrap:wrap}
 .scan-compare .sc-toggle{background:transparent;border:1px solid currentColor;color:inherit;border-radius:999px;font-size:11px;font-weight:600;padding:3px 11px;cursor:pointer;font-family:inherit}
 .scan-compare .sc-toggle:hover{background:rgba(0,0,0,.05)}
 .scan-compare .sc-list{list-style:none;margin-top:9px;padding-top:9px;border-top:1px dashed currentColor;display:flex;flex-direction:column;gap:5px}

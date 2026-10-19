@@ -95,6 +95,32 @@ test('computeMissingProfiles: không thiếu khi mọi profile đều quét đư
   assert.strictEqual(missing.length, 0);
 });
 
+const { removeProfilesFromLocalState } = require('../src/chromeProfiles');
+
+test('removeProfilesFromLocalState: xóa đúng profile ma khỏi Local State', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'upm-ls-'));
+  try {
+    const ls = {
+      profile: {
+        info_cache: { 'Default': { name: 'Sếp' }, 'Profile 1': { name: 'Seeding' }, 'Profile 2': { name: 'Ma' } },
+        profiles_order: ['Default', 'Profile 1', 'Profile 2'],
+        last_active_profiles: ['Profile 2'],
+      },
+    };
+    fs.writeFileSync(path.join(dir, 'Local State'), JSON.stringify(ls), 'utf8');
+    const res = removeProfilesFromLocalState(dir, ['Profile 2']);
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(res.removed, 1);
+    const after = JSON.parse(fs.readFileSync(path.join(dir, 'Local State'), 'utf8'));
+    assert.strictEqual(after.profile.info_cache['Profile 2'], undefined);
+    assert.ok(after.profile.info_cache['Default']);
+    assert.deepStrictEqual(after.profile.profiles_order, ['Default', 'Profile 1']);
+    assert.deepStrictEqual(after.profile.last_active_profiles, []);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('computeMissingProfiles: báo thiếu + đúng lý do', () => {
   const machine = [
     { profileDirectory: 'Default', name: 'Sếp' },

@@ -13,6 +13,11 @@ let lastScan = { machineCount: 0, missing: [] }; // kết quả so sánh "Chrome
 
 // ── Changelog — lịch sử phiên bản (mới nhất lên đầu) ──────
 const CHANGELOG = [
+  { v: '1.9.2', items: [
+    'Khuyến nghị Basic/Pro theo đúng sức máy: chỉ gợi ý Basic khi RAM < 8GB, hoặc CPU ≤ 2 nhân, hoặc (RAM < 16GB và mở > 80 Chrome). Máy khỏe nhiều Chrome vẫn khuyến nghị Pro',
+    'Dọn profile ma: thêm nút "Dọn profile ma" trên thanh so sánh — đóng Chrome rồi xóa các tên thừa Chrome còn nhớ (thư mục đã mất), đưa số liệu về khớp',
+    'Khi "Xóa tài khoản" nay dọn luôn tên khỏi Local State của Chrome → không còn sinh profile ma',
+  ] },
   { v: '1.9.0', items: [
     'Tự động cập nhật: app tự kiểm tra bản mới khi mở lên, tải nền và hỏi khởi động lại để cập nhật — không cần tải/cài tay. Có nút "Kiểm tra cập nhật" trong Cài đặt',
     'Ghim profile: bấm icon ghim trên thẻ hoặc hàng để đưa profile lên đầu trang (giữ qua các lần quét, ghim được nhiều cái)',
@@ -1606,7 +1611,10 @@ function renderScanCompare() {
   box.innerHTML = `
     <div class="sc-head">
       <span class="sc-main">⚠ Chrome trong máy: <b>${machine}</b> · Đã quét: <b>${scanned}</b> · <b class="sc-miss">Thiếu ${missing.length}</b></span>
-      <button class="sc-toggle" id="sc-toggle">Xem chi tiết</button>
+      <span class="sc-actions">
+        <button class="sc-toggle" id="sc-clean">Dọn ${missing.length} profile ma</button>
+        <button class="sc-toggle" id="sc-toggle">Xem chi tiết</button>
+      </span>
     </div>
     <ul class="sc-list" id="sc-list" style="display:none">${detail}</ul>`;
   const t = document.getElementById('sc-toggle');
@@ -1615,6 +1623,14 @@ function renderScanCompare() {
     const show = l.style.display === 'none';
     l.style.display = show ? '' : 'none';
     t.textContent = show ? 'Ẩn chi tiết' : 'Xem chi tiết';
+  });
+  const cbtn = document.getElementById('sc-clean');
+  if (cbtn) cbtn.addEventListener('click', async () => {
+    if (!confirm('Dọn profile ma sẽ ĐÓNG toàn bộ Chrome đang mở, rồi xóa các tên thừa khỏi bộ nhớ Chrome (Local State).\nViệc này chỉ dọn danh sách cho khớp, không xóa thêm dữ liệu gì. Tiếp tục?')) return;
+    cbtn.disabled = true; cbtn.textContent = 'Đang dọn...';
+    const r = await window.app.cleanGhostProfiles();
+    if (r.success) { showToast(`Đã dọn ${r.removed} profile ma. Danh sách giờ đã khớp.`, 'success'); scanProfiles(); }
+    else { cbtn.disabled = false; cbtn.textContent = `Dọn ${missing.length} profile ma`; showToast('Không dọn được: ' + (r.error || ''), 'error'); }
   });
 }
 
@@ -2264,8 +2280,9 @@ async function renderSysInfo() {
     const info = await window.app.getSystemInfo();
     const ramGB = info.totalRAM / (1024 ** 3);
     const profileCount = allProfiles.length;
-    // Khuyến nghị Basic khi RAM thấp hoặc nhiều profile
-    const recommendBasic = ramGB < 8 || profileCount > 50 || info.cpuCount <= 2;
+    // Khuyến nghị theo SỨC MÁY là chính: chỉ gợi ý Basic khi máy thật sự yếu
+    // (RAM < 8GB, hoặc CPU ≤ 2 nhân, hoặc RAM tầm trung < 16GB mà mở quá nhiều Chrome > 80).
+    const recommendBasic = ramGB < 8 || info.cpuCount <= 2 || (ramGB < 16 && profileCount > 80);
     const rec = recommendBasic ? 'Basic' : 'Pro';
     box.innerHTML = `
       <div class="sysinfo-line">RAM: <b>${ramGB.toFixed(1)} GB</b> · CPU: <b>${info.cpuCount} nhân</b> · Chrome: <b>${profileCount}</b></div>
