@@ -1,0 +1,74 @@
+name: Build Chrome Manager
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # cần để tạo GitHub Release
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: chrome-shortcut-manager
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── 2. Setup Node ─────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # ── 3. Đặt version = <major>.<minor>.<run_number> (KHÔNG commit lại) ──
+      # Không ghi commit ngược về repo nữa → máy owner push lúc nào cũng trơn tru,
+      # không bao giờ bị kẹt "cần pull trước". Mỗi lần chạy có run_number khác nhau
+      # nên version + tag luôn duy nhất, tăng dần.
+      - name: Set build version
+        id: ver
+        shell: pwsh
+        run: |
+          $pkg = Get-Content package.json -Raw | ConvertFrom-Json
+          $parts = $pkg.version -split '\.'
+          $newVer = "$($parts[0]).$($parts[1]).${{ github.run_number }}"
+          $pkg.version = $newVer
+          $pkg | ConvertTo-Json -Depth 20 | Set-Content package.json -Encoding UTF8
+          echo "version=$newVer" >> $env:GITHUB_OUTPUT
+          Write-Host "Build version: $newVer"
+
+      # ── 4. Cài dependency đúng theo lockfile ──────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── 5. Chạy unit test (phải xanh mới build) ───────────────
+      - name: Run tests
+        run: npm test
+
+      # ── 6. Build .exe + tự publish lên GitHub Releases ────────
+      # electron-builder tạo Release (kèm latest.yml) để app tự cập nhật (electron-updater).
+      - name: Build & publish Windows .exe
+        run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 7. (Tùy chọn) Thông báo Telegram — chỉ chạy nếu có secret ──
+      - name: Notify Telegram
+        if: success() && env.TELEGRAM_BOT_TOKEN != ''
+        continue-on-error: true
+        shell: pwsh
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $time = (Get-Date).ToUniversalTime().AddHours(7).ToString("dd/MM/yyyy HH:mm")
+          $msg = "BUILD THANH CONG`n`nChrome Manager by UP Media`nPhien ban: v$ver`n`nApp se tu cap nhat tren may da cai.`n`n$time (GMT+7)"
+          $uri = "https://api.telegram.org/bot$($env:TELEGRAM_BOT_TOKEN)/sendMessage"
+          Invoke-RestMethod -Uri $uri -Method Post -Body @{ chat_id = $env:TELEGRAM_CHAT_ID; text = $msg }

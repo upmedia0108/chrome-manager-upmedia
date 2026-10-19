@@ -1,0 +1,65 @@
+========================================================================
+  HƯỚNG DẪN ĐẨY DỰ ÁN LÊN GITHUB  —  Chrome Manager by UP Media
+  (Dành cho người không rành kỹ thuật — làm theo đúng thứ tự)
+========================================================================
+
+Chỉ phải làm PHẦN A + PHẦN B MỘT LẦN DUY NHẤT.
+Từ lần sau, mỗi khi muốn lưu/đẩy thay đổi: chỉ cần bấm đúp "day-len-github.bat".
+
+------------------------------------------------------------------------
+PHẦN A — CÀI GIT (một lần, nếu máy chưa có)
+------------------------------------------------------------------------
+1. Mở trình duyệt, vào:  https://git-scm.com/download/win
+2. Tải bản "64-bit Git for Windows Setup", mở lên.
+3. Bấm Next liên tục cho đến hết → Install → Finish. (Để mặc định hết.)
+
+(Nếu không chắc máy đã có Git chưa thì cứ cài — cài đè không sao.)
+
+------------------------------------------------------------------------
+PHẦN B — TẠO 1 REPO RỖNG TRÊN GITHUB (một lần)
+------------------------------------------------------------------------
+1. Vào:  https://github.com/new   (đăng nhập tài khoản tuyenthanh829)
+2. Ở ô "Repository name" gõ chính xác:   chrome-manager-upmedia
+3. Chọn:  Private  (để riêng tư — khuyến nghị).
+4. KHÔNG tích "Add a README", KHÔNG tích .gitignore, KHÔNG chọn license.
+   (Phải để repo RỖNG hoàn toàn.)
+5. Bấm "Create repository".
+
+------------------------------------------------------------------------
+PHẦN C — ĐẨY LÊN LẦN ĐẦU (một lần)
+------------------------------------------------------------------------
+1. Bấm đúp file:  CAI-DAT-LAN-DAU.bat
+2. Khi hiện cửa sổ đăng nhập GitHub → bấm "Sign in with your browser"
+   → đăng nhập tài khoản tuyenthanh829 → cho phép (Authorize).
+   (Chỉ phải đăng nhập 1 lần này; các lần sau không hỏi lại.)
+3. Chờ dòng chữ "XONG!" hiện ra là thành công.
+
+------------------------------------------------------------------------
+QUAN TRỌNG — ĐỂ REPO Ở CHẾ ĐỘ PUBLIC (cho tính năng tự cập nhật)
+------------------------------------------------------------------------
+Tính năng "app tự cập nhật" cần repo ở chế độ Public.
+Cách đổi (một lần): vào repo trên GitHub → Settings → kéo xuống cuối
+→ mục "Danger Zone" → "Change repository visibility" → chọn Public → xác nhận.
+(Mã nguồn lộ ra KHÔNG nguy hiểm: tài khoản/cookie của Sếp không nằm trong code.)
+
+------------------------------------------------------------------------
+TỪ LẦN SAU — MỖI KHI MUỐN ĐẨY THAY ĐỔI
+------------------------------------------------------------------------
+→ Chỉ cần bấm đúp:  day-len-github.bat
+  (Nó tự đồng bộ + lưu + đẩy lên GitHub. GitHub tự build file .exe mới sau ~10-15 phút.)
+
+TỰ ĐỘNG CẬP NHẬT: sau khi build xong, các máy đã CÀI app sẽ tự thấy bản mới
+mỗi lần mở app, tự tải và hỏi "khởi động lại để cập nhật" — KHÔNG cần tải/cài tay,
+KHÔNG cần Telegram. (Có thể bấm "Kiểm tra cập nhật" trong Cài đặt để kiểm tra ngay.)
+
+------------------------------------------------------------------------
+NẾU GẶP LỖI
+------------------------------------------------------------------------
+- "Chua cai Git"            → làm lại PHẦN A.
+- "Day len that bai"        → kiểm tra đã tạo repo RỖNG đúng tên ở PHẦN B chưa,
+                              và đã đăng nhập GitHub ở PHẦN C chưa. Rồi chạy lại.
+- Repo tên khác / tài khoản khác → mở "CAI-DAT-LAN-DAU.bat" bằng Notepad,
+   sửa dòng  set REPO_URL=...  cho đúng, lưu lại rồi chạy lại.
+
+Mọi thắc mắc cứ nhắn Claude, em hướng dẫn tiếp.
+========================================================================

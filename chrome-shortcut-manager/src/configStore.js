@@ -1,0 +1,145 @@
+const fs = require('fs');
+const path = require('path');
+
+const DEFAULT_GROUPS = ['Seeding', 'Ads', 'BM', 'Khách hàng', 'Cá nhân', 'Khác'];
+
+let configPath = '';
+
+function init(userDataPath) {
+  configPath = path.join(userDataPath, 'config.json');
+}
+
+function load() {
+  const empty = { profiles: {}, groups: DEFAULT_GROUPS, groupSubs: {}, settings: { theme: 'light' } };
+  if (!configPath) return empty;
+  try {
+    if (!fs.existsSync(configPath)) return empty;
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const cfg = JSON.parse(raw);
+    if (!cfg.groups) cfg.groups = DEFAULT_GROUPS;
+    if (!cfg.groupSubs) cfg.groupSubs = {};
+    if (!cfg.profiles) cfg.profiles = {};
+    for (const p of Object.values(cfg.profiles)) {
+      if (p.group && !p.groups) { p.groups = [p.group]; delete p.group; }
+      if (!p.groups) p.groups = [];
+      if (!p.notes) p.notes = '';
+      if (!p.subGroups) p.subGroups = {};
+      // Migrate: subGroups value string → array
+      for (const [g, v] of Object.entries(p.subGroups)) {
+        if (typeof v === 'string') p.subGroups[g] = [v];
+      }
+    }
+    return cfg;
+  } catch {
+    return { ...empty, _error: true };
+  }
+}
+
+function save(config) {
+  try {
+    const dir = path.dirname(configPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+    return true;
+  } catch { return false; }
+}
+
+function saveProfileConfig(profileDirectory, data) {
+  const config = load();
+  if (!config.profiles) config.profiles = {};
+  config.profiles[profileDirectory] = { ...config.profiles[profileDirectory], ...data };
+  config.settings = config.settings || {};
+  config.settings.lastScanAt = new Date().toISOString();
+  return save(config);
+}
+
+function deleteProfileConfig(profileDirectory) {
+  const config = load();
+  if (config.profiles) delete config.profiles[profileDirectory];
+  return save(config);
+}
+
+function saveSettings(settings) {
+  const config = load();
+  config.settings = { ...config.settings, ...settings };
+  return save(config);
+}
+
+function getGroups() { return load().groups || DEFAULT_GROUPS; }
+function saveGroups(groups) {
+  const config = load();
+  config.groups = groups;
+  return save(config);
+}
+
+function getGroupSubs() { return load().groupSubs || {}; }
+function saveGroupSubs(groupSubs) {
+  const config = load();
+  config.groupSubs = groupSubs;
+  return save(config);
+}
+
+// Trạng thái chính sách tiện ích do UP Media quản lý (cumulative)
+function getExtPolicy() {
+  const p = load().extPolicy || {};
+  return { forcelist: p.forcelist || [], blocklist: p.blocklist || [], updateUrls: p.updateUrls || {} };
+}
+function saveExtPolicy(policy) {
+  const config = load();
+  config.extPolicy = {
+    forcelist: Array.from(new Set(policy.forcelist || [])),
+    blocklist: Array.from(new Set(policy.blocklist || [])),
+    updateUrls: policy.updateUrls || {},
+  };
+  return save(config);
+}
+
+// Tiện ích ngoài store tự host: [{ id, version, folder, name }]
+function getExternalExtensions() { return load().externalExts || []; }
+function saveExternalExtensions(list) {
+  const config = load();
+  config.externalExts = list;
+  return save(config);
+}
+
+function getSocialSites() { return load().socialSites || null; }
+function saveSocialSites(sites) {
+  const config = load();
+  config.socialSites = sites;
+  return save(config);
+}
+
+// Rename a group across all profile configs
+function renameGroupInProfiles(oldName, newName) {
+  const config = load();
+  let changed = false;
+  for (const p of Object.values(config.profiles || {})) {
+    if (p.groups && p.groups.includes(oldName)) {
+      p.groups = p.groups.map(g => g === oldName ? newName : g);
+      changed = true;
+    }
+    if (p.subGroups && p.subGroups[oldName] !== undefined) {
+      p.subGroups[newName] = p.subGroups[oldName];
+      delete p.subGroups[oldName];
+      changed = true;
+    }
+  }
+  if (changed) save(config);
+  return changed;
+}
+
+function getConfig() { return load(); }
+
+module.exports = {
+  init, load, save,
+  saveProfileConfig, deleteProfileConfig,
+  saveSettings,
+  getGroups, saveGroups,
+  getGroupSubs, saveGroupSubs,
+  getSocialSites, saveSocialSites,
+  getExtPolicy, saveExtPolicy,
+  getExternalExtensions, saveExternalExtensions,
+  renameGroupInProfiles,
+  getConfig,
+  DEFAULT_GROUPS
+};
