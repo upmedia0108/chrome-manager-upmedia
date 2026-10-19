@@ -4,7 +4,7 @@ title Cai dat lan dau - Chrome Manager by UP Media
 cd /d "%~dp0"
 
 REM ====== SUA 2 DONG NAY NEU CAN ======
-set REPO_URL=https://github.com/tuyenthanh829/chrome-manager-upmedia.git
+set REPO_URL=https://github.com/upmedia0108/chrome-manager-upmedia.git
 set GIT_NAME=Tuyen Thanh
 set GIT_EMAIL=tuyennt@upmedia.vn
 REM ====================================

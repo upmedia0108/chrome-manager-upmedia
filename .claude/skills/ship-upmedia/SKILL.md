@@ -18,7 +18,7 @@ KHÔNG cấu hình lại, chỉ điều phối đúng luồng.
 
 ## 0. HẰNG SỐ MÔI TRƯỜNG (không hỏi lại)
 
-- **Repo:** `tuyenthanh829/UP-Media` · code trong `chrome-shortcut-manager/`.
+- **Repo:** `upmedia0108/UP-Media` · code trong `chrome-shortcut-manager/`.
 - **Nhánh phát hành:** `main` (CI chỉ build khi push lên `main`).
 - **CI:** `.github/workflows/build-electron.yml` — tự bump patch version, `electron-builder --win`, tạo Release (Setup + Portable), gửi Telegram (Secrets `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`).
 - **Ngôn ngữ giao tiếp với người dùng:** tiếng Việt. **Ngôn ngữ commit:** tiếng Anh.

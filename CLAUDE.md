@@ -2,7 +2,7 @@
 
 > Tài liệu này dành cho các phiên Claude Code / dev mới để hiểu toàn bộ lịch sử, kiến trúc, vấn đề đã giải quyết và định hướng phát triển của phần mềm này.
 > Cập nhật lần cuối: **v1.9.0** (repo riêng + ghim profile + box so sánh quét + Basic/Pro + chống mở trùng bền trên Win 11 24H2). Xem Mục 15.
-> **Repo riêng (mới):** `github.com/tuyenthanh829/chrome-manager-upmedia` — tách khỏi monorepo `UP-Media` cũ. Nhánh phát hành vẫn là `main`.
+> **Repo riêng (mới):** `github.com/upmedia0108/chrome-manager-upmedia` — tách khỏi monorepo `UP-Media` cũ. Nhánh phát hành vẫn là `main`.
 
 ---
 
@@ -40,7 +40,7 @@
 
 **Mục đích cốt lõi:** Quản lý hàng chục đến hàng trăm Chrome profile trên cùng một máy Windows. Mỗi profile là một "tài khoản" riêng biệt — thường dùng cho seeding, quảng cáo (Ads/BM), hoặc khách hàng.
 
-**Repository:** `github.com/tuyenthanh829/UP-Media`
+**Repository:** `github.com/upmedia0108/UP-Media`
 **Thư mục app:** `chrome-shortcut-manager/`
 **CI/CD:** GitHub Actions → Windows build → GitHub Release → Telegram notification
 
@@ -530,7 +530,7 @@ Functions:
 
 ## 12. THÔNG TIN MÔI TRƯỜNG
 
-- **Owner:** Tuyen Thanh, UP Media Agency (tuyenthanh829)
+- **Owner:** Tuyen Thanh, UP Media Agency (upmedia0108)
 - **Email liên hệ:** tuyennt.upmedia@gmail.com
 - **Platform target:** Windows 10/11 x64 ONLY
 - **Electron:** v28
@@ -624,7 +624,7 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 > Version hiện tại: **v1.9.0**. Bản đầu tiên trên repo riêng `chrome-manager-upmedia`. Bổ sung cho Mục 0/13/14.
 
 ### 15.1 Tách repo riêng
-- App chuyển sang repo độc lập `github.com/tuyenthanh829/chrome-manager-upmedia` (giữ nguyên layout: app trong thư mục `chrome-shortcut-manager/`, CI `.github/workflows/build-electron.yml` không đổi).
+- App chuyển sang repo độc lập `github.com/upmedia0108/chrome-manager-upmedia` (giữ nguyên layout: app trong thư mục `chrome-shortcut-manager/`, CI `.github/workflows/build-electron.yml` không đổi).
 - Đẩy code: 2 file `.bat` ở gốc repo — `CAI-DAT-LAN-DAU.bat` (một lần) và `day-len-github.bat` (bấm đúp mỗi lần cần đẩy). Xem `HUONG-DAN-GITHUB.txt`.
 
 ### 15.2 Ghim profile (mục 1)

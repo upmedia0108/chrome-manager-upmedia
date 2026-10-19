@@ -18,7 +18,7 @@ PHẦN A — CÀI GIT (một lần, nếu máy chưa có)
 ------------------------------------------------------------------------
 PHẦN B — TẠO 1 REPO RỖNG TRÊN GITHUB (một lần)
 ------------------------------------------------------------------------
-1. Vào:  https://github.com/new   (đăng nhập tài khoản tuyenthanh829)
+1. Vào:  https://github.com/new   (đăng nhập tài khoản upmedia0108)
 2. Ở ô "Repository name" gõ chính xác:   chrome-manager-upmedia
 3. Chọn:  Private  (để riêng tư — khuyến nghị).
 4. KHÔNG tích "Add a README", KHÔNG tích .gitignore, KHÔNG chọn license.
@@ -30,7 +30,7 @@ PHẦN C — ĐẨY LÊN LẦN ĐẦU (một lần)
 ------------------------------------------------------------------------
 1. Bấm đúp file:  CAI-DAT-LAN-DAU.bat
 2. Khi hiện cửa sổ đăng nhập GitHub → bấm "Sign in with your browser"
-   → đăng nhập tài khoản tuyenthanh829 → cho phép (Authorize).
+   → đăng nhập tài khoản upmedia0108 → cho phép (Authorize).
    (Chỉ phải đăng nhập 1 lần này; các lần sau không hỏi lại.)
 3. Chờ dòng chữ "XONG!" hiện ra là thành công.
 

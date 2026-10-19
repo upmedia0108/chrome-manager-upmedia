@@ -4,7 +4,7 @@
   "description": "Chrome Manager by UP Media — Quản lý Chrome profile và tạo shortcut Desktop cho Windows",
   "repository": {
     "type": "git",
-    "url": "https://github.com/tuyenthanh829/chrome-manager-upmedia"
+    "url": "https://github.com/upmedia0108/chrome-manager-upmedia"
   },
   "main": "main.js",
   "scripts": {
@@ -85,7 +85,7 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "tuyenthanh829",
+        "owner": "upmedia0108",
         "repo": "chrome-manager-upmedia",
         "releaseType": "release"
       }
