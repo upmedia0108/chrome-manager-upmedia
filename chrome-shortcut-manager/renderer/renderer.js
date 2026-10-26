@@ -13,6 +13,11 @@ let lastScan = { machineCount: 0, missing: [] }; // kết quả so sánh "Chrome
 
 // ── Changelog — lịch sử phiên bản (mới nhất lên đầu) ──────
 const CHANGELOG = [
+  { v: '1.9.4', items: [
+    'Sửa lỗi bộ lọc "Chưa đặt tên" xếp nhầm profile đã có tên: profile có tên shortcut trùng tên lưu trong Chrome (vd "Đinh Thị Thanh") nay được tính là đã đặt tên. Chỉ còn xếp vào "Chưa đặt tên" khi ô tên trống, vẫn là "Profile N", hoặc là tên mặc định Chrome tự sinh (Person 1, Người dùng 2, Your Chrome…)',
+    'Số đếm "Chưa đặt tên" cập nhật ngay sau khi sửa tên, không cần quét lại',
+    'Chỉ bấm vào ô tên rồi bấm ra ngoài (không sửa gì) thì không còn tự lưu tên',
+  ] },
   { v: '1.9.2', items: [
     'Khuyến nghị Basic/Pro theo đúng sức máy: chỉ gợi ý Basic khi RAM < 8GB, hoặc CPU ≤ 2 nhân, hoặc (RAM < 16GB và mở > 80 Chrome). Máy khỏe nhiều Chrome vẫn khuyến nghị Pro',
     'Dọn profile ma: thêm nút "Dọn profile ma" trên thanh so sánh — đóng Chrome rồi xóa các tên thừa Chrome còn nhớ (thư mục đã mất), đưa số liệu về khớp',
@@ -146,10 +151,8 @@ function avatarClass(groups) {
   return first ? `av-${groupClass(first)}` : 'av-default';
 }
 function avatarLetter(name) { return (name || '?').charAt(0).toUpperCase(); }
-function isUnnamed(p) {
-  const n = p.shortcutName || '';
-  return !n || n === p.profileDirectory || n === p.chromeProfileName;
-}
+// Quy tắc nằm ở renderer/nameRules.js (dùng chung với unit test)
+function isUnnamed(p) { return isUnnamedProfile(p); }
 
 function eh(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function ea(s) { return String(s||'').replace(/"/g,'&quot;'); }
@@ -220,9 +223,7 @@ function updateStats(profiles) {
   document.getElementById('stat-total').textContent = profiles.length;
   document.getElementById('stat-has-shortcut').textContent = profiles.filter(p=>p.hasShortcut).length;
   document.getElementById('stat-no-shortcut').textContent = profiles.filter(p=>!p.hasShortcut).length;
-  document.getElementById('stat-unnamed').textContent = profiles.filter(p=>{
-    const n=p.shortcutName||''; return !n||n===p.profileDirectory||n===p.chromeProfileName;
-  }).length;
+  document.getElementById('stat-unnamed').textContent = profiles.filter(isUnnamed).length;
   document.getElementById('stat-gmail').textContent = profiles.filter(p=>(p.googleAccounts||[]).length>0).length;
   // Social count updates via updateSocialStats() after background scan
 }
@@ -336,7 +337,7 @@ function renderSidebar() {
   unnamedEl.className = `sidebar-item${unnamedActive ? ' active' : ''}`;
   unnamedEl.innerHTML = `
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-    <span>Chưa đặt tên</span><span class="sidebar-count">${unnamedCnt}</span>
+    <span>Chưa đặt tên</span><span class="sidebar-count" id="sidebar-unnamed-count">${unnamedCnt}</span>
   `;
   unnamedEl.addEventListener('click', () => { activeSidebarFilter={type:'login',loginType:'unnamed'}; clearSearchInput(); renderSidebar(); applyFilter(); });
   sl.appendChild(unnamedEl);
@@ -951,6 +952,8 @@ async function buildCard(profile) {
     const p = allProfiles.find(x=>x.profileDirectory===dir);
     if (!p) return;
     const warn = document.getElementById(`warn-${dir}`);
+    // Không đổi gì thì không lưu (tránh vô tình lưu tên Chrome điền sẵn khi chỉ bấm vào ô)
+    if (name === (p.shortcutName || '').trim()) { if (warn) warn.classList.remove('show'); return; }
     const dup = await window.app.checkDuplicateName(dir, name);
     if (dup.isDuplicate) { if(warn) warn.classList.add('show'); return; }
     if (warn) warn.classList.remove('show');
@@ -958,6 +961,11 @@ async function buildCard(profile) {
     await window.app.saveProfileConfig(dir, { shortcutName: name });
     card.querySelector('.profile-name-info h3').textContent = name||p.chromeProfileName||p.profileDirectory;
     refreshAvatarInCard(card, p);
+    // Cập nhật ngay số đếm "Chưa đặt tên" (header + sidebar) tại chỗ, không cần quét lại.
+    // Không vẽ lại cả sidebar: blur xảy ra lúc bấm chuột, vẽ lại sẽ làm mất cú bấm vào bộ lọc.
+    updateStats(allProfiles);
+    const unnamedCntEl = document.getElementById('sidebar-unnamed-count');
+    if (unnamedCntEl) unnamedCntEl.textContent = allProfiles.filter(isUnnamed).length;
   });
   card.querySelector('.input-name').addEventListener('input', () => {
     const warn = document.getElementById(`warn-${profile.profileDirectory}`);

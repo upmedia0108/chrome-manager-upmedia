@@ -136,3 +136,77 @@ test('computeMissingProfiles: báo thiếu + đúng lý do', () => {
   assert.match(p1.reason, /chưa đọc được/);
   assert.match(p2.reason, /không còn/);
 });
+
+// ── renderer/nameRules.js — bộ lọc "Chưa đặt tên" ────────
+const { isUnnamedProfile, looksLikeDefaultName } = require('../renderer/nameRules');
+
+test('isUnnamedProfile: lỗi Profile 14 — tên shortcut trùng tên Chrome là tên thật → ĐÃ đặt tên', () => {
+  const p = { profileDirectory: 'Profile 14', chromeProfileName: 'Đinh Thị Thanh', shortcutName: 'Đinh Thị Thanh', chromeUsingDefaultName: false };
+  assert.strictEqual(isUnnamedProfile(p), false);
+  // Không đọc được cờ của Chrome (profile thiếu trong Local State) vẫn tính là đã đặt
+  assert.strictEqual(isUnnamedProfile({ ...p, chromeUsingDefaultName: null }), false);
+  assert.strictEqual(isUnnamedProfile({ ...p, chromeUsingDefaultName: undefined }), false);
+});
+
+test('isUnnamedProfile: trống / trùng tên thư mục → chưa đặt', () => {
+  assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 3', chromeProfileName: 'Profile 3', shortcutName: '' }), true);
+  assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 3', chromeProfileName: 'Profile 3', shortcutName: '   ' }), true);
+  assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 3', chromeProfileName: 'X', shortcutName: 'Profile 3' }), true);
+  assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Default', chromeProfileName: 'Default', shortcutName: 'Default' }), true);
+  assert.strictEqual(isUnnamedProfile(null), true);
+});
+
+test('isUnnamedProfile: tên mặc định Chrome tự sinh → chưa đặt', () => {
+  for (const n of ['Person 1', 'Người dùng 2', 'Người 5', 'Hồ sơ 3', 'Your Chrome', 'Chrome của bạn', 'User 7']) {
+    assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 9', chromeProfileName: n, shortcutName: n }), true, n);
+  }
+});
+
+test('isUnnamedProfile: Chrome đánh dấu đang dùng tên mặc định → chưa đặt, trừ khi trùng tên tài khoản Google', () => {
+  const base = { profileDirectory: 'Profile 2', chromeProfileName: 'Cú mèo', shortcutName: 'Cú mèo', chromeUsingDefaultName: true };
+  assert.strictEqual(isUnnamedProfile(base), true);
+  assert.strictEqual(isUnnamedProfile({ ...base, chromeProfileName: 'Lan Anh', shortcutName: 'Lan Anh', chromeGaiaNames: ['Lan Anh'] }), false);
+});
+
+test('isUnnamedProfile: tên tự đặt khác tên Chrome → đã đặt (kể cả Chrome dùng tên mặc định)', () => {
+  assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 5', chromeProfileName: 'Person 5', shortcutName: 'Ads Queen Spa', chromeUsingDefaultName: true }), false);
+  assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 6', chromeProfileName: 'Profile 6', shortcutName: 'Seeding FB 01' }), false);
+});
+
+test('isUnnamedProfile: không phân biệt dạng gõ tiếng Việt (NFC/NFD) và khoảng trắng thừa', () => {
+  const nfd = 'Đinh Thị Thanh'.normalize('NFD');
+  assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 14', chromeProfileName: 'Đinh Thị Thanh', shortcutName: ' ' + nfd + ' ', chromeUsingDefaultName: true, chromeGaiaNames: ['Đinh  Thị Thanh'] }), false);
+  assert.strictEqual(looksLikeDefaultName('Người  dùng 1'.normalize('NFD')), true);
+  assert.strictEqual(looksLikeDefaultName('Người mua hàng'), false);
+});
+
+test('scanProfiles: đọc cờ tên mặc định + tên Google từ Local State/Preferences cho bộ lọc "Chưa đặt tên"', () => {
+  const { scanProfiles } = require('../src/chromeProfiles');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'upm-scan-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'Local State'), JSON.stringify({ profile: { info_cache: {
+      'Profile 14': { name: 'Đinh Thị Thanh', is_using_default_name: false },
+      'Profile 2':  { name: 'Person 2', is_using_default_name: true, gaia_name: 'Lan Anh Nguyễn', gaia_given_name: 'Lan Anh' },
+    } } }), 'utf8');
+    fs.mkdirSync(path.join(dir, 'Profile 14'));
+    fs.writeFileSync(path.join(dir, 'Profile 14', 'Preferences'), JSON.stringify({ profile: { name: 'Đinh Thị Thanh', using_default_name: false } }), 'utf8');
+    fs.mkdirSync(path.join(dir, 'Profile 2')); // thiếu Preferences → lấy từ Local State
+    fs.mkdirSync(path.join(dir, 'Profile 7'));
+    fs.writeFileSync(path.join(dir, 'Profile 7', 'Preferences'), JSON.stringify({ profile: { name: 'Người dùng 7', using_default_name: true } }), 'utf8');
+
+    const { profiles } = scanProfiles(dir);
+    const by = Object.fromEntries(profiles.map(p => [p.profileDirectory, p]));
+    assert.strictEqual(by['Profile 14'].chromeUsingDefaultName, false);
+    assert.strictEqual(by['Profile 2'].chromeUsingDefaultName, true);
+    assert.deepStrictEqual(by['Profile 2'].chromeGaiaNames, ['Lan Anh Nguyễn', 'Lan Anh']);
+    assert.strictEqual(by['Profile 7'].chromeUsingDefaultName, true); // dự phòng từ Preferences
+
+    // Giống main.js: tên shortcut tự điền = tên Chrome khi chưa đặt trong app
+    const asApp = p => ({ ...p, shortcutName: p.chromeProfileName });
+    assert.strictEqual(isUnnamedProfile(asApp(by['Profile 14'])), false);
+    assert.strictEqual(isUnnamedProfile(asApp(by['Profile 2'])), true);
+    assert.strictEqual(isUnnamedProfile(asApp(by['Profile 7'])), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

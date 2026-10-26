@@ -1,7 +1,7 @@
 # CHROME MANAGER BY UP MEDIA — Tài liệu kỹ thuật toàn diện
 
 > Tài liệu này dành cho các phiên Claude Code / dev mới để hiểu toàn bộ lịch sử, kiến trúc, vấn đề đã giải quyết và định hướng phát triển của phần mềm này.
-> Cập nhật lần cuối: **v1.9.0** (repo riêng + ghim profile + box so sánh quét + Basic/Pro + chống mở trùng bền trên Win 11 24H2). Xem Mục 15.
+> Cập nhật lần cuối: **v1.9.4** (sửa bộ lọc "Chưa đặt tên" — Mục 16). Trước đó v1.9.0 (repo riêng + ghim profile + box so sánh quét + Basic/Pro + chống mở trùng bền trên Win 11 24H2) — Mục 15.
 > **Repo riêng (mới):** `github.com/upmedia0108/chrome-manager-upmedia` — tách khỏi monorepo `UP-Media` cũ. Nhánh phát hành vẫn là `main`.
 
 ---
@@ -562,7 +562,7 @@ Functions:
 ### Tính năng UI mới
 1. **Chế độ hiển thị:** nút chuyển **thẻ ⇄ hàng tinh gọn** (localStorage `upm_view_mode`). Hàng hiện: tên · phân loại · social · mail · **số tiện ích** · **lượt mở**. Bấm cả hàng = mở Chrome.
 2. **Sắp xếp theo lượt mở:** localStorage `upm_open_counts`, `bumpOpenCount()` khi mở; `applyFilter()` sort giảm dần.
-3. **Bộ lọc mới:** "Chưa có nhóm" (`type:'nogroup'`), "Chưa đặt tên" (`type:'login', loginType:'unnamed'`), `isUnnamed(p)`.
+3. **Bộ lọc mới:** "Chưa có nhóm" (`type:'nogroup'`), "Chưa đặt tên" (`type:'login', loginType:'unnamed'`), `isUnnamed(p)` (từ v1.9.4 gọi `isUnnamedProfile` trong `renderer/nameRules.js` — xem Mục 16).
 4. **Tìm kiếm chuẩn hóa:** `normalizeSearch()` bỏ dấu (NFD + đ→d), hoa/thường, ký tự đặc biệt. Click bộ lọc sidebar tự `clearSearchInput()`.
 5. **Cache dung lượng:** KHÔNG auto-scan khi render (gây đơ 50 profile). Lưu localStorage `upm_cache_sizes`, mỗi thẻ có nút "Tính", modal "Tối ưu dung lượng" persist kết quả.
 6. **Social Cache:** nút "Load Social Cache" (sidebar), tải thủ công, lưu thời gian localStorage `upm_social_cache_time`, tự làm mới >7 ngày. `backgroundScanSocial()` gọi `applyFilter()` để cập nhật cả 2 chế độ.
@@ -662,3 +662,26 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 - [ ] Chống mở trùng vẫn hoạt động trên Win 11 24H2 (không mở chồng khi profile đang mở)
 - [ ] Auto-update: build bản mới → máy đã cài tự hiện thông báo cập nhật; nút "Kiểm tra cập nhật" chạy
 - [ ] CI: push bằng day-len-github.bat không bị kẹt version; Release có kèm latest.yml
+
+---
+
+## 16. CẬP NHẬT v1.9.4 (sửa bộ lọc "Chưa đặt tên")
+
+### 16.1 Lỗi & nguyên nhân
+- Triệu chứng: profile đã có tên (vd Profile 14 "Đinh Thị Thanh") vẫn nằm trong bộ lọc "Chưa đặt tên".
+- Nguyên nhân: `main.js scan-profiles` tự điền `shortcutName = saved.shortcutName || chromeProfileName || profileDirectory`. `isUnnamed()` cũ coi `shortcutName === chromeProfileName` là chưa đặt → không phân biệt được tên Sếp tự gõ trùng tên Chrome với tên app tự điền; profile có tên Chrome là tên thật bị xếp nhầm.
+
+### 16.2 Quy tắc mới — `renderer/nameRules.js` (nguồn chân lý)
+- File UMD, nạp bằng `<script src="nameRules.js">` TRƯỚC `renderer.js` (gắn `isUnnamedProfile`, `looksLikeDefaultName` vào `window`); unit test `require('../renderer/nameRules')`.
+- `isUnnamedProfile(p)` = chưa đặt khi: tên trống · trùng `profileDirectory` · khớp mẫu tên mặc định Chrome (`Person N`, `User N`, `Người dùng N`, `Người N`, `Hồ sơ N`, `Your Chrome`, `Chrome của bạn`, `Default`) · hoặc trùng `chromeProfileName` **và** `chromeUsingDefaultName === true` **và** không trùng tên tài khoản Google (`chromeGaiaNames`). Còn lại = đã đặt. So sánh chuẩn hóa NFC + gộp khoảng trắng.
+- `renderer.js`: `isUnnamed(p)` chỉ gọi `isUnnamedProfile`; `updateStats()` dùng chung (hết trùng lặp logic).
+- `chromeProfiles.scanProfiles()` trả thêm `chromeUsingDefaultName` (Local State `profile.info_cache[dir].is_using_default_name`, dự phòng Preferences `profile.using_default_name`; không đọc được = `null`) và `chromeGaiaNames` (`gaia_name`, `gaia_given_name`, Preferences `gaia_name`).
+
+### 16.3 Ô "Tên shortcut" trên thẻ
+- Blur chỉ lưu khi tên đổi so với `p.shortcutName` (trước đây chỉ focus rồi blur cũng lưu tên Chrome điền sẵn vào config).
+- Sau khi lưu: `updateStats()` + cập nhật tại chỗ `#sidebar-unnamed-count`. KHÔNG gọi `renderSidebar()` trong blur: blur xảy ra lúc mousedown, vẽ lại sidebar sẽ làm mất cú click vào bộ lọc.
+
+### Hạng mục cần nghiệm thu trên Windows thật (v1.9.4)
+- [ ] Profile 14 "Đinh Thị Thanh" không còn trong "Chưa đặt tên" sau khi cập nhật + Quét lại
+- [ ] Profile còn tên "Profile N" / tên mặc định Chrome vẫn nằm trong "Chưa đặt tên"
+- [ ] Sửa tên trên thẻ → số đếm "Chưa đặt tên" (header + cột trái) đổi ngay

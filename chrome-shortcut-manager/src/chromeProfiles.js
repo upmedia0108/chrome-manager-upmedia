@@ -40,7 +40,8 @@ function readPreferences(profilePath) {
       name: prefs?.profile?.name || null,
       avatarIndex: prefs?.profile?.avatar_index ?? null,
       gaiaName: prefs?.profile?.gaia_name || null,
-      email: prefs?.profile?.user_name || null
+      email: prefs?.profile?.user_name || null,
+      usingDefaultName: typeof prefs?.profile?.using_default_name === 'boolean' ? prefs.profile.using_default_name : null
     };
   } catch {
     return {};
@@ -117,7 +118,8 @@ function scanProfiles(customUserDataPath) {
     // Local State (info_cache) nếu không đọc được Preferences.
     const prefs = readPreferences(profilePath);
     const avatarPath = findProfileAvatar(profilePath);
-    const icName = infoCache[entry] && infoCache[entry].name;
+    const ic = infoCache[entry] || {};
+    const icName = ic.name;
 
     foundDirs.add(entry);
     profiles.push({
@@ -125,6 +127,11 @@ function scanProfiles(customUserDataPath) {
       profilePath,
       chromeProfileName: prefs.name || icName || entry,
       gaiaName: prefs.gaiaName || null,
+      // Cho bộ lọc "Chưa đặt tên" (renderer/nameRules.js): Chrome tự đánh dấu profile đang dùng
+      // tên mặc định nó sinh ra (Person 1, Your Chrome…). Ưu tiên Local State, dự phòng Preferences.
+      chromeUsingDefaultName: typeof ic.is_using_default_name === 'boolean' ? ic.is_using_default_name
+        : (typeof prefs.usingDefaultName === 'boolean' ? prefs.usingDefaultName : null),
+      chromeGaiaNames: [prefs.gaiaName, ic.gaia_name, ic.gaia_given_name].filter(Boolean),
       email: prefs.email || null,
       avatarIndex: prefs.avatarIndex,
       avatarPath: avatarPath || null,

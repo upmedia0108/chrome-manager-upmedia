@@ -4,6 +4,12 @@ Tất cả thay đổi theo từng phiên bản.
 
 ---
 
+## v1.9.4
+- **Sửa lỗi bộ lọc "Chưa đặt tên" xếp nhầm profile đã có tên.** Nguyên nhân: `isUnnamed()` cũ coi "tên shortcut = tên Chrome đang lưu (`chromeProfileName`)" là chưa đặt (vì `main.js` tự điền tên Chrome vào ô tên khi chưa đặt) → profile mà tên Chrome đã là tên thật (vd Profile 14 "Đinh Thị Thanh") bị xếp nhầm. Quy tắc mới tách ra `renderer/nameRules.js` (`isUnnamedProfile`, dùng chung cho sidebar, thống kê header, chấm vàng dạng hàng + unit test): chỉ "chưa đặt" khi tên trống / trùng `Profile N` / khớp mẫu tên mặc định Chrome (Person N, Người dùng N, Your Chrome…) / hoặc trùng tên Chrome **và** Chrome đánh dấu `is_using_default_name` (trừ khi trùng tên tài khoản Google).
+- `chromeProfiles.scanProfiles()` trả thêm `chromeUsingDefaultName` (Local State `info_cache.is_using_default_name`, dự phòng Preferences `profile.using_default_name`) và `chromeGaiaNames`.
+- Ô "Tên shortcut": chỉ lưu khi tên thực sự đổi (trước đây chỉ bấm vào rồi bấm ra cũng lưu); sau khi lưu cập nhật ngay số đếm "Chưa đặt tên" ở header + sidebar (cập nhật tại chỗ, không vẽ lại sidebar để không mất cú bấm).
+- Thêm 7 unit test (`test/unit.test.js`).
+
 ## v1.9.2
 - **Khuyến nghị Basic/Pro đúng sức máy:** công thức mới chỉ gợi ý Basic khi `RAM < 8GB` HOẶC `CPU ≤ 2 nhân` HOẶC (`RAM < 16GB` và `>80 Chrome`). Trước đây chỉ cần >50 Chrome là khuyên Basic kể cả máy khỏe → đã sửa.
 - **Dọn "profile ma":** `chromeProfiles.removeProfilesFromLocalState()` xóa các entry Chrome còn nhớ trong Local State nhưng thư mục đã mất. Nút "Dọn profile ma" trên thanh so sánh (IPC `clean-ghost-profiles`, đóng Chrome trước khi dọn). Handler `delete-chrome-profile` nay cũng dọn Local State → không sinh profile ma nữa.
