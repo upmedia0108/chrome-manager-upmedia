@@ -306,3 +306,19 @@ test('isUnnamedProfile: "Cá nhân N" (Chrome tiếng Việt đặt mặc địn
   assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 10', chromeProfileName: 'Cá nhân 5', shortcutName: 'Cá nhân 5' }), true);
   assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 10', chromeProfileName: 'Cá nhân 5', shortcutName: 'Cá nhân Sếp Tuyền' }), false);
 });
+
+test('parseWindowList: đọc danh sách cửa sổ (mẫu thật) + phân biệt "không có cửa sổ" với "PowerShell lỗi"', () => {
+  const exe = '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"';
+  const out = [
+    `3672194\tChrome.UserData.Profile33\t${exe} --profile-directory="Profile 33"`,
+    `328830\tChrome\t${exe} --profile-directory=Default`,
+    '6621230\tChrome._crx_eilemenohkicgjd.UserData.Profile1\t',
+    'END', '',
+  ].join('\r\n');
+  const r = chromeWindows.parseWindowList(out);
+  assert.strictEqual(r.ok, true);
+  assert.deepStrictEqual(r.windows.map(w => w.dir), ['Profile 33', 'Default', 'Profile 1']);
+  assert.deepStrictEqual(chromeWindows.parseWindowList('END\r\n'), { ok: true, windows: [] });
+  assert.strictEqual(chromeWindows.parseWindowList('').ok, false);
+  assert.match(chromeWindows.buildListScript(), /\[UPMWin\]::List\(\)[\s\S]*Write-Output 'END'$/);
+});

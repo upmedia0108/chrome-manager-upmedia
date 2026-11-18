@@ -10,6 +10,7 @@ Tất cả thay đổi theo từng phiên bản.
 - Renderer: `refreshRunning` chỉ vẽ lại khi tập "Đang mở" thay đổi (trước đây vẽ lại danh sách mỗi 4 giây khi đang lọc "Đang mở").
 - `nameRules.js`: thêm mẫu tên mặc định "Cá nhân N" (Chrome tiếng Việt).
 - Thêm 5 unit test (`test/unit.test.js`).
+- `chromeWindows.js` thêm `listChromeWindows`/`parseWindowList`/`buildListScript` (liệt kê cửa sổ Chrome theo profile) — cổng MCP 1.2.0 dùng để bù cho Chrome vừa mở chưa khóa file; app chưa dùng (+1 unit test).
 
 ---
 

@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "chrome-manager-upmedia",
   "display_name": "Chrome Manager by UP Media",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Cho Claude tìm và mở đúng Chrome profile theo tên đã đặt trong Chrome Manager by UP Media.",
   "long_description": "Cổng kết nối giữa Claude và phần mềm Chrome Manager by UP Media trên máy Windows. Claude có thể tìm Chrome theo tên, nhóm, ghi chú, email; mở Chrome theo tên (gõ không dấu cũng được); mở một trang web trong đúng Chrome; mở cả một nhóm. Chỉ tìm và mở — không xóa, không sửa, không đọc cookie hay mật khẩu. Không cần mở Chrome Manager, cổng đọc chung tên và nhóm đã đặt trong app.",
   "author": {

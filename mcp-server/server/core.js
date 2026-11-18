@@ -55,6 +55,33 @@ function loadAppConfig(configPath) {
   }
 }
 
+// ── Ghi chú an toàn ──────────────────────────────────────
+// Ghi chú trong app có thể chứa mật khẩu, mã 2FA, cookie (thấy khi test 19/11/2026) → KHÔNG bao giờ gửi nguyên văn cho Claude.
+// Chỉ lấy ĐOẠN ĐẦU (trước xuống dòng / tab / "|"), tối đa 80 ký tự; đoạn đầu trông như thông tin đăng nhập thì ẩn hẳn.
+const SECRET_HINT_RE = /(pass|mật\s*khẩu|mat\s*khau|\b2fa\b|\botp\b|cookie|token|c_user|\bxs=|datr=|\bfr=|sessionid|bearer|EAA[A-Za-z0-9]{10,}|[A-Za-z0-9+\/_=-]{24,})/i;
+const NOTE_HIDDEN = '(ghi chú có thể chứa thông tin đăng nhập — đã ẩn)';
+function looksSecret(text) {
+  const s = String(text || '');
+  if (SECRET_HINT_RE.test(s)) return true;
+  // một "từ" ≥ 8 ký tự trộn chữ thường + chữ hoa + số → nhiều khả năng là mật khẩu
+  return s.split(/\s+/).some(w => w.length >= 8 && /[a-z]/.test(w) && /[A-Z]/.test(w) && /\d/.test(w));
+}
+function firstNoteSegment(notes) {
+  return String(notes || '').split(/[\r\n\t|]/).map(x => x.trim()).find(Boolean) || '';
+}
+// Ghi chú để HIỂN THỊ cho Claude
+function safeNote(notes) {
+  const first = firstNoteSegment(notes);
+  if (!first) return '';
+  if (looksSecret(first)) return NOTE_HIDDEN;
+  return first.length > 80 ? first.slice(0, 80) + '…' : first;
+}
+// Ghi chú để TÌM KIẾM (chỉ đoạn đầu, bỏ nếu trông như thông tin đăng nhập)
+function searchableNote(notes) {
+  const first = firstNoteSegment(notes);
+  return first && !looksSecret(first) ? first : '';
+}
+
 // Gộp dữ liệu Chrome + dữ liệu app thành danh sách profile gọn cho Claude
 function buildProfiles(scanned, config) {
   return scanned.map(p => {
@@ -73,7 +100,8 @@ function buildProfiles(scanned, config) {
       chromeName: p.chromeProfileName || '',
       groups,
       subGroups,
-      notes: saved.notes || '',
+      note: safeNote(saved.notes),                 // KHÔNG giữ ghi chú gốc trong dữ liệu gửi cho Claude
+      noteSearch: searchableNote(saved.notes),
       pinned: !!saved.pinned,
       emails,
     };
@@ -105,7 +133,7 @@ function clearCache() { _cache = null; }
 // ── Tìm & khớp tên ───────────────────────────────────────
 function allSubs(p) { return Object.values(p.subGroups).flat(); }
 function haystack(p) {
-  return ' ' + normalizeSearch([p.name, p.chromeName, p.dir, p.notes, ...p.groups, ...allSubs(p), ...p.emails].join(' ')) + ' ';
+  return ' ' + normalizeSearch([p.name, p.chromeName, p.dir, p.noteSearch, ...p.groups, ...allSubs(p), ...p.emails].join(' ')) + ' ';
 }
 function tokens(q) { return normalizeSearch(q).split(' ').filter(Boolean); }
 // Mọi từ khóa đều khớp ĐẦU một từ trong chuỗi (gõ "thanh" khớp "Thanh", "an" không khớp "Thanh")
@@ -180,13 +208,26 @@ function normalizeUrl(input) {
   return u.href;
 }
 
-// ── Chrome đang mở: dùng CHUNG module của app (shared/chromeWindows.js — dò khóa file từng profile) ──
-// Chrome gom mọi profile vào 1 tiến trình nên KHÔNG đọc dòng lệnh được (chỉ thấy profile mở đầu tiên).
-async function getRunningDirs(userDataPath, env = process.env) {
-  if (env.UPM_MCP_FAKE_RUNNING != null) {             // cho test
-    return new Set(env.UPM_MCP_FAKE_RUNNING.split(',').map(d => d.trim().toLowerCase()).filter(Boolean));
-  }
+// ── Chrome đang mở: dùng CHUNG module của app (shared/chromeWindows.js) ──
+// Chrome gom mọi profile vào 1 tiến trình nên KHÔNG đọc dòng lệnh được. Gộp 2 nguồn:
+//  - khóa file (nhanh, nhưng profile vừa mở có thể chưa khóa) · - cửa sổ Chrome (chắc chắn, ~1 giây PowerShell)
+function fakeSet(v) { return new Set(String(v || '').split(',').map(d => d.trim().toLowerCase()).filter(Boolean)); }
+function getLockedDirs(userDataPath, env = process.env) {
+  if (env.UPM_MCP_FAKE_RUNNING != null) return fakeSet(env.UPM_MCP_FAKE_RUNNING);   // cho test
   try { return chromeWindows.getLoadedProfileDirs(userDataPath); } catch { return new Set(); }
+}
+async function getOpenDirs(userDataPath, env = process.env) {
+  const lock = getLockedDirs(userDataPath, env);
+  let win = new Set(), winOk = false;
+  if (env.UPM_MCP_FAKE_RUNNING != null) {             // cho test: profile trong FAKE_NOWINDOW chỉ khóa file, không có cửa sổ
+    const noWin = fakeSet(env.UPM_MCP_FAKE_NOWINDOW);
+    win = new Set([...lock].filter(d => !noWin.has(d))); winOk = true;
+  } else {
+    const r = await chromeWindows.listChromeWindows();
+    winOk = r.ok;
+    for (const w of r.windows) if (w.dir) win.add(w.dir.toLowerCase());
+  }
+  return { dirs: new Set([...lock, ...win]), lock, win, winOk };
 }
 
 // ── Mở Chrome ────────────────────────────────────────────
@@ -222,9 +263,10 @@ function launchChrome(dir, opts = {}, env = process.env) {
 
 // ── Đưa đúng cửa sổ của profile lên trước (module chung) → {success} | {notFound} | {blocked} ──
 function focusProfileWindow(dir, env = process.env) {
-  if (env.UPM_MCP_DRY_RUN) {                          // cho test: UPM_MCP_FAKE_NOWINDOW="Profile 5" = profile chạy ngầm, không có cửa sổ
-    const noWin = String(env.UPM_MCP_FAKE_NOWINDOW || '').split(',').map(x => x.trim().toLowerCase());
-    return Promise.resolve(noWin.includes(String(dir).toLowerCase()) ? { success: false, notFound: true, dryRun: true } : { success: true, dryRun: true });
+  if (env.UPM_MCP_DRY_RUN) {                          // cho test: có cửa sổ = nằm trong FAKE_RUNNING và không nằm trong FAKE_NOWINDOW
+    const d = String(dir).toLowerCase();
+    const hasWin = fakeSet(env.UPM_MCP_FAKE_RUNNING).has(d) && !fakeSet(env.UPM_MCP_FAKE_NOWINDOW).has(d);
+    return Promise.resolve(hasWin ? { success: true, dryRun: true } : { success: false, notFound: true, dryRun: true });
   }
   return chromeWindows.focusProfileWindow(dir);
 }
@@ -234,6 +276,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 module.exports = {
   normalizeSearch, findConfigPath, loadAppConfig, buildProfiles, loadProfiles, clearCache,
   searchProfiles, resolveProfile, resolveGroup, normalizeUrl,
-  getRunningDirs, findChrome, buildChromeArgs, launchChrome, sleep, focusProfileWindow,
+  getLockedDirs, getOpenDirs, findChrome, buildChromeArgs, launchChrome, sleep, focusProfileWindow,
+  safeNote, searchableNote,
   GROUP_CONFIRM_OVER, BATCH_DELAY_MS,
 };

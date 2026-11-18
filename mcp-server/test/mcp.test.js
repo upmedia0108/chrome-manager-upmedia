@@ -32,6 +32,13 @@ test('khai báo đủ 4 lệnh + hướng dẫn cho Claude', async () => {
   assert.match(client.getInstructions(), /Chrome Manager by UP Media/);
 });
 
+test('tim_chrome: không bao giờ trả ghi chú chứa mật khẩu / cookie', async () => {
+  const r = await call('tim_chrome', { nhom: 'FB' });
+  assert.doesNotMatch(r.text, /GiaMatKhau99|c_user|ABCDEFGHIJKLMNOPQRSTUVWX|xs=GIA/);
+  assert.match(r.text, /"ghi_chu": "Tài khoản: 100099"/);
+  assert.match(r.text, /đã ẩn/);
+});
+
 test('tim_chrome: tìm theo từ khóa, báo đang mở', async () => {
   const r = await call('tim_chrome', { tu_khoa: 'seeding fb 02' });
   assert.match(r.text, /Tìm thấy 1\/13/);

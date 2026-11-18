@@ -20,7 +20,8 @@ function makeFixture() {
   addProfile('Default', 'Sếp', { shortcutName: 'Tuyển UP', groups: ['Nhân sự UP'], subGroups: { 'Nhân sự UP': ['HCTH'] } });
   addProfile('Profile 14', 'Đinh Thị Thanh', { shortcutName: 'Đinh Thị Thanh', groups: ['Nhân sự UP'], subGroups: { 'Nhân sự UP': ['VHDA'] }, notes: 'Ads Queen Spa', pinned: true }, { email: 'thanh.dt@gmail.com' });
   for (let i = 2; i <= 10; i++) {
-    addProfile(`Profile ${i}`, `Person ${i}`, { shortcutName: `Seeding FB ${String(i - 1).padStart(2, '0')}`, groups: ['Social'], subGroups: { Social: 'FB' } });
+    addProfile(`Profile ${i}`, `Person ${i}`, { shortcutName: `Seeding FB ${String(i - 1).padStart(2, '0')}`, groups: ['Social'], subGroups: { Social: 'FB' },
+      notes: i === 2 ? 'Tài khoản: 100099\nPass: GiaMatKhau99\n2FA: ABCDEFGHIJKLMNOPQRSTUVWX' : (i === 3 ? 'GiaMatKhau99\tc_user=100099; xs=GIA' : '') });
   }
   addProfile('Profile 11', 'Thanh Hà', null);
   addProfile('Profile 12', 'Person 12', { shortcutName: 'Thanh Hà KH', groups: ['Khách hàng'] });

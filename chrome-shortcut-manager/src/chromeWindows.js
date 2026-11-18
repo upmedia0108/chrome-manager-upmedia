@@ -6,6 +6,8 @@
 // Cách mới, đã đối chiếu khớp 3/3 Chrome đang mở trên máy Sếp:
 //  1) ĐANG MỞ = Chrome đang khóa file dữ liệu của profile (Network/Cookies, Local Storage/leveldb/LOCK).
 //     Node thuần, ~1ms/profile, không gọi PowerShell → dùng cho vòng làm mới 4 giây của app.
+//     ⚠️ Chrome mở các file này KHI CẦN: profile vừa mở (mới trang trống) có thể chưa khóa → bỏ sót vài giây/phút
+//     (thấy khi test cổng MCP 19/11/2026). Cần chắc chắn thì gộp thêm listChromeWindows() (đọc cửa sổ).
 //  2) CỬA SỔ  = mỗi cửa sổ Chrome mang thuộc tính Windows (shell property store):
 //     - RelaunchCommand: "...chrome.exe" --profile-directory="Profile 33"   (cửa sổ trình duyệt)
 //     - AppUserModelID : "Chrome.UserData.Profile33" · Default = "Chrome" · app PWA = "Chrome._crx_<id>[.UserData.ProfileN]"
@@ -128,6 +130,41 @@ public class UPMWin {
 }
 `;
 
+// Script PowerShell liệt kê cửa sổ Chrome đang hiện: mỗi dòng "hwnd<TAB>AppUserModelID<TAB>RelaunchCommand", kết thúc bằng END
+// (có END = chạy trọn; không có = PowerShell lỗi → không kết luận).
+function buildListScript() {
+  return [
+    "$ErrorActionPreference='SilentlyContinue'",
+    "Add-Type -TypeDefinition @'",
+    WIN_CS.trim(),
+    "'@",
+    '[UPMWin]::List() | ForEach-Object { Write-Output $_ }',
+    "Write-Output 'END'",
+  ].join('\n');
+}
+
+// Đọc kết quả liệt kê → { ok, windows: [{ hwnd, aumid, relaunch, dir }] }
+function parseWindowList(stdout) {
+  const lines = String(stdout || '').split(/\r?\n/).map(l => l.replace(/\s+$/, '')).filter(Boolean);
+  const ok = lines.includes('END');
+  const windows = lines.filter(l => l !== 'END' && /^\d+\t/.test(l)).map(l => {
+    const [hwnd, aumid = '', relaunch = ''] = l.split('\t');
+    return { hwnd, aumid, relaunch, dir: windowProfileDir(aumid, relaunch) };
+  });
+  return { ok, windows };
+}
+
+// Liệt kê cửa sổ Chrome (1 lần gọi PowerShell ~1 giây) — KHÔNG dùng cho vòng 4 giây
+function listChromeWindows() {
+  if (process.platform !== 'win32') return Promise.resolve({ ok: false, windows: [] });
+  return new Promise(resolve => {
+    execFile('powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodePowerShell(buildListScript())],
+      { windowsHide: true, timeout: 12000, maxBuffer: 1024 * 1024 },
+      (err, stdout) => resolve(err ? { ok: false, windows: [] } : parseWindowList(stdout)));
+  });
+}
+
 // Script PowerShell: tìm cửa sổ của profile → khôi phục nếu đang thu nhỏ (cửa sổ phóng to giữ nguyên) → đưa lên trước.
 // Ưu tiên cửa sổ trình duyệt (có RelaunchCommand) hơn cửa sổ app PWA. In ra OK / NONE / BLOCKED.
 function buildFocusScript(dir) {
@@ -181,5 +218,6 @@ function focusProfileWindow(dir) {
 module.exports = {
   isFileLocked, isProfileLoaded, getLoadedProfileDirs,
   RELAUNCH_DIR_RE, AUMID_PROFILE_RE, windowProfileDir,
+  buildListScript, parseWindowList, listChromeWindows,
   buildFocusScript, encodePowerShell, focusProfileWindow,
 };

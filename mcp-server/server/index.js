@@ -27,7 +27,7 @@ function brief(p, running) {
   if (p.groups.length) o.nhom = p.groups;
   const subs = Object.entries(p.subGroups).filter(([, v]) => v.length);
   if (subs.length) o.danh_muc_con = Object.fromEntries(subs);
-  if (p.notes) o.ghi_chu = p.notes;
+  if (p.note) o.ghi_chu = p.note;   // chỉ đoạn đầu, đã ẩn thông tin đăng nhập
   if (p.emails.length) o.email = p.emails;
   if (p.pinned) o.ghim = true;
   if (running) o.dang_mo = running.has(p.dir.toLowerCase());
@@ -75,7 +75,7 @@ const server = new McpServer(
 // 1) Tìm / liệt kê
 server.registerTool('tim_chrome', {
   title: 'Tìm Chrome profile',
-  description: 'Liệt kê hoặc tìm Chrome profile trong Chrome Manager by UP Media theo tên, nhóm, danh mục con, ghi chú hoặc email (gõ có dấu hay không dấu đều được). Trả về tên, thư mục (Profile N), nhóm, ghi chú, email, đang mở hay không. Để trống tu_khoa để xem tất cả.',
+  description: 'Liệt kê hoặc tìm Chrome profile trong Chrome Manager by UP Media theo tên, nhóm, danh mục con, đoạn đầu ghi chú hoặc email (gõ có dấu hay không dấu đều được). Trả về tên, thư mục (Profile N), nhóm, đoạn đầu ghi chú (thông tin đăng nhập luôn bị ẩn), email, đang mở hay không. Để trống tu_khoa để xem tất cả.',
   inputSchema: {
     tu_khoa: z.string().optional().describe('Từ khóa: tên, ghi chú, email… (bỏ trống = tất cả)'),
     nhom: z.string().optional().describe('Lọc theo nhóm cha hoặc danh mục con, vd "Social", "FB"'),
@@ -90,12 +90,15 @@ server.registerTool('tim_chrome', {
       configNote(data), true);
   }
   const list = core.searchProfiles(data.profiles, { query: tu_khoa, group: nhom });
-  const running = await core.getRunningDirs(data.userDataPath);
+  const open = await core.getOpenDirs(data.userDataPath);
+  const running = open.dirs;
   const max = gioi_han || 50;
   const shown = list.slice(0, max).map(p => brief(p, running));
   const head = `Tìm thấy ${list.length}/${data.profiles.length} Chrome` +
     (tu_khoa ? ` khớp "${tu_khoa}"` : '') + (nhom ? ` trong "${nhom}"` : '') +
-    (list.length > max ? ` (hiện ${max} đầu tiên)` : '') + '.';
+    (list.length > max ? ` (hiện ${max} đầu tiên)` : '') + '.' +
+    ` Trên máy đang mở ${open.dirs.size} Chrome` + (open.winOk ? '.' : ' (chưa đọc được cửa sổ Chrome, chỉ dò theo file — có thể sót Chrome vừa mở).') +
+    ' Ghi chú chỉ hiện đoạn đầu; thông tin đăng nhập trong ghi chú luôn được ẩn.';
   return textResult(head + configNote(data) + '\n' + JSON.stringify(shown, null, 1));
 });
 
@@ -116,13 +119,16 @@ server.registerTool('mo_chrome', {
   if (r.status !== 'ok') return notFoundText(ten);
   const p = r.profile;
   let reopenNote = '';
-  if (!mo_them_cua_so && (await core.getRunningDirs(data.userDataPath)).has(p.dir.toLowerCase())) {
+  if (!mo_them_cua_so) {
+    // Tìm cửa sổ của profile trước (chắc chắn hơn dò file): có → đưa lên trước, không mở chồng
     const f = await core.focusProfileWindow(p.dir);
     if (f.success) return textResult(`Chrome ${label(p)} đang mở sẵn — đã đưa cửa sổ lên trước màn hình${f.dryRun ? ' [chạy khô]' : ''}.`);
     if (!f.notFound) {
       return textResult(`Chrome ${label(p)} đang mở sẵn nhưng Windows chưa cho đưa cửa sổ lên trước. Người dùng có thể bấm vào Chrome đó trên thanh taskbar; nếu muốn mở thêm cửa sổ mới, gọi lại với mo_them_cua_so=true.`);
     }
-    reopenNote = ' (Chrome này đang chạy ngầm, không có cửa sổ nào — đã mở cửa sổ mới.)';   // notFound → mở cửa sổ mới
+    if (core.getLockedDirs(data.userDataPath).has(p.dir.toLowerCase())) {
+      reopenNote = ' (Chrome này đang chạy ngầm, không có cửa sổ nào — đã mở cửa sổ mới.)';
+    }
   }
   try {
     const res = core.launchChrome(p.dir, { userDataPath: data.launchUserDataPath });
@@ -175,7 +181,7 @@ server.registerTool('mo_nhom', {
   if (!g.profiles.length) {
     return textResult(`Không có Chrome nào trong ${where}. Các nhóm hiện có: ${data.groups.join(', ') || '(chưa có)'}.` + configNote(data), true);
   }
-  const running = await core.getRunningDirs(data.userDataPath);
+  const running = (await core.getOpenDirs(data.userDataPath)).dirs;
   const toOpen = g.profiles.filter(p => !running.has(p.dir.toLowerCase()));
   const skipped = g.profiles.length - toOpen.length;
   if (!toOpen.length) return textResult(`Cả ${g.profiles.length} Chrome trong ${where} đều đang mở sẵn.`);

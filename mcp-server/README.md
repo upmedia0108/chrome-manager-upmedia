@@ -26,6 +26,7 @@ Gõ cho Claude: *"Mở Chrome Đinh Thị Thanh"*, *"Mở facebook.com trong Chr
 
 Quy tắc an toàn:
 - Chỉ **tìm và mở**. Không xóa, không sửa, không đọc cookie hay mật khẩu.
+- **Ghi chú** chỉ gửi cho Claude **đoạn đầu** (trước xuống dòng/tab), tối đa 80 ký tự; đoạn nào trông như mật khẩu, mã 2FA, cookie, token thì **ẩn hẳn** (từ 1.2.0).
 - Tên khớp nhiều Chrome → Claude **hỏi lại**, không tự chọn.
 - Chrome đang mở sẵn → đưa cửa sổ đó lên trước màn hình, không mở chồng thêm cửa sổ (trừ khi Sếp yêu cầu).
 - Mở nhóm **hơn 5 Chrome** → Claude phải hỏi xác nhận trước.
@@ -41,5 +42,6 @@ Không cần bật Chrome Manager: cổng tự đọc tên, nhóm, ghi chú đã
 - **Đóng gói:** `npm run pack` → đồng bộ, chạy test, `mcpb validate`, `mcpb pack` → `dist/Chrome-Manager-UP-Media-MCP-<version>.mcpb` (`dist/` không đưa lên Git). Nâng version: sửa **cả** `package.json` và `manifest.json`.
 - **Biến môi trường cho test:** `UPM_CONFIG_PATH`, `UPM_CHROME_USER_DATA`, `UPM_CHROME_EXE`, `UPM_MCP_DRY_RUN`, `UPM_MCP_FAKE_RUNNING` ("Profile 3,Profile 5"), `UPM_MCP_FAKE_NOWINDOW` (profile chạy ngầm không có cửa sổ).
 - **Khác app:** không truyền `--remote-debugging-port` (vô tác dụng từ Chrome 130+, bỏ cho an toàn); thêm đường dẫn Chrome cài theo user (`%LOCALAPPDATA%\Google\Chrome\Application`); KHÔNG đồng bộ tên lên Chrome trước khi mở như app (cổng chỉ đọc + mở).
+- **Đang mở (từ 1.2.0):** gộp khóa file + danh sách cửa sổ Chrome (`listChromeWindows`) — khóa file một mình bỏ sót Chrome vừa mở (test 19/11/2026). `mo_chrome` luôn tìm cửa sổ của profile trước: có → đưa lên; không → mở.
 - **Đang mở + nhảy cửa sổ (từ 1.1.0):** dùng chung `chromeWindows.js` của app v1.10.6 — đang mở = Chrome khóa file dữ liệu của profile; nhảy đúng cửa sổ theo thuộc tính Windows của từng cửa sổ (xem `CLAUDE.md` Mục 19). Đang mở mà không thấy cửa sổ nào (chạy ngầm) → mở cửa sổ mới.
 - **Cần nghiệm thu trên Windows thật:** mở theo tên; mở link; mở nhóm; chống mở trùng; đưa cửa sổ đang mở lên trước; trường hợp Chrome đang chạy do Chrome Manager (chạy quyền Administrator) mở trước đó.

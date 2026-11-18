@@ -721,7 +721,7 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 
 ---
 
-## 18. CỔNG MCP CHO CLAUDE DESKTOP (`mcp-server/`, v1.1.0)
+## 18. CỔNG MCP CHO CLAUDE DESKTOP (`mcp-server/`, v1.2.0)
 
 > Nhu cầu: Sếp nói với Claude "mở Chrome <tên>" → Claude tự tìm đúng profile và mở. Claude trên mây KHÔNG gọi được API localhost của máy, nên làm **MCP server chạy local qua stdio**, đóng gói **Desktop Extension `.mcpb`** cài 1 lần vào app Claude (Claude Desktop có sẵn Node, không cần cài thêm). Chat Claude trên mây đã liên kết máy cũng gọi được (qua cầu nối thiết bị).
 
@@ -734,6 +734,7 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 
 ### 18.2 An toàn
 - Chỉ đọc + mở: không ghi vào config/Chrome, không xóa, không đọc cookie/mật khẩu.
+- ⚠️ **Ghi chú của app có thể chứa mật khẩu / 2FA / cookie** (thấy khi test thật 19/11/2026 — MCP 1.1.0 trả nguyên văn). Từ 1.2.0: `safeNote()` chỉ gửi đoạn đầu (trước xuống dòng/tab/`|`, ≤80 ký tự), đoạn trông như thông tin đăng nhập (`pass`, `2fa`, `cookie`, `c_user`, `xs=`, token dài, từ trộn hoa-thường-số ≥8 ký tự…) → ẩn hẳn; tìm kiếm cũng chỉ trên đoạn đầu an toàn (`searchableNote`). Dữ liệu profile gửi cho Claude KHÔNG còn trường ghi chú gốc.
 - Tên khớp nhiều → không mở, trả danh sách để Claude hỏi lại. Mở nhóm > 5 Chrome → cần `xac_nhan=true`.
 - `mo_link` chỉ nhận http/https (chuẩn hóa qua `URL`, không chèn được tham số dòng lệnh Chrome).
 
@@ -745,7 +746,7 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 
 ### 18.4 Khác app / giới hạn đã biết
 - Không đồng bộ tên lên Chrome trước khi mở như app v1.10.0 (`syncChromeNameFor`) — cổng chỉ đọc.
-- Đang mở + nhảy cửa sổ: từ MCP **1.1.0** dùng chung `chromeWindows.js` với app v1.10.6 (Mục 19). MCP 1.0.0 dò theo dòng lệnh → chỉ thấy profile mở đầu tiên (đã xác nhận trên máy thật, đã bỏ). `mo_chrome`: đang mở → nhảy cửa sổ; chạy ngầm không có cửa sổ → mở cửa sổ mới.
+- Đang mở: MCP **1.2.0** gộp khóa file + danh sách cửa sổ (`listChromeWindows`) vì test thật cho thấy Chrome VỪA MỞ chưa khóa file → khóa file một mình bỏ sót. `mo_chrome` luôn tìm cửa sổ của profile trước (có → đưa lên, không → mở). Từ MCP **1.1.0** dùng chung `chromeWindows.js` với app v1.10.6 (Mục 19). MCP 1.0.0 dò theo dòng lệnh → chỉ thấy profile mở đầu tiên (đã xác nhận trên máy thật, đã bỏ). `mo_chrome`: đang mở → nhảy cửa sổ; chạy ngầm không có cửa sổ → mở cửa sổ mới.
 
 ### Hạng mục cần nghiệm thu trên Windows thật (MCP v1.1.0)
 - [ ] Cài `.mcpb` vào Claude Desktop thành công, Claude thấy 4 lệnh
@@ -777,5 +778,6 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 
 ### 19.3 Còn cần nghiệm thu trên Windows thật (v1.10.6)
 - [ ] Mở 3–4 Chrome → nhãn "● Đang mở" + bộ lọc "Đang mở" hiện ĐỦ, đóng 1 Chrome → nhãn tắt trong ~4 giây (nếu không tắt: Chrome giữ profile chạy ngầm sau khi đóng cửa sổ → cân nhắc kết hợp thêm danh sách cửa sổ)
+- [ ] ⚠️ Đã biết (test cổng MCP 19/11/2026): Chrome VỪA MỞ (mới trang trống) có thể CHƯA khóa file → nhãn "Đang mở" hiện chậm tới khi profile duyệt web. Nếu nghiệm thu thấy rõ: cho app gộp thêm `listChromeWindows()` (đã có sẵn trong `chromeWindows.js`, ~1 giây PowerShell/lần — chạy thưa, vd mỗi 15 giây hoặc ngay sau khi mở Chrome, KHÔNG chạy mỗi 4 giây)
 - [ ] Bấm nhãn "Đang mở" của Profile 1 khi Profile 14 cũng mở → nhảy đúng Profile 1; cửa sổ phóng to giữ nguyên; cửa sổ thu nhỏ được bung ra
 - [ ] Bấm mở 1 Chrome đang mở → cửa sổ đó nhảy lên trước (toast "đã đưa cửa sổ lên trước")

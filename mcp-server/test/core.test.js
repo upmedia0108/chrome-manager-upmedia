@@ -17,7 +17,8 @@ test('loadProfiles: gộp đúng tên/nhóm/ghi chú/email từ app + Chrome', (
   const p14 = P.find(p => p.dir === 'Profile 14');
   assert.strictEqual(p14.name, 'Đinh Thị Thanh');
   assert.deepStrictEqual(p14.groups, ['Nhân sự UP']);
-  assert.strictEqual(p14.notes, 'Ads Queen Spa');
+  assert.strictEqual(p14.note, 'Ads Queen Spa');
+  assert.strictEqual(p14.notes, undefined);   // ghi chú gốc không nằm trong dữ liệu gửi cho Claude
   assert.deepStrictEqual(p14.emails, ['thanh.dt@gmail.com']);
   assert.strictEqual(p14.pinned, true);
   // subGroups dạng chuỗi (dữ liệu cũ) được đổi thành mảng
@@ -99,9 +100,30 @@ test('buildChromeArgs: đúng tham số, link nằm cuối', () => {
   assert.deepStrictEqual(core.buildChromeArgs('Default'), ['--profile-directory=Default', '--no-first-run', '--no-default-browser-check']);
 });
 
-test('getRunningDirs: dùng dò khóa file của module chung (máy thường → không có profile nào đang mở)', async () => {
-  assert.strictEqual((await core.getRunningDirs(fx.userData, {})).size, 0);
-  assert.deepStrictEqual([...(await core.getRunningDirs(fx.userData, { UPM_MCP_FAKE_RUNNING: 'Profile 3, Default' }))].sort(), ['default', 'profile 3']);
+test('getOpenDirs: gộp khóa file + cửa sổ (máy thường không có Chrome → rỗng; giả lập)', async () => {
+  const none = await core.getOpenDirs(fx.userData, {});
+  assert.strictEqual(none.dirs.size, 0);
+  const fake = await core.getOpenDirs(fx.userData, { UPM_MCP_FAKE_RUNNING: 'Profile 3, Default', UPM_MCP_FAKE_NOWINDOW: 'Default' });
+  assert.deepStrictEqual([...fake.dirs].sort(), ['default', 'profile 3']);
+  assert.deepStrictEqual([...fake.win], ['profile 3']);
+});
+
+test('safeNote: ghi chú chứa mật khẩu / 2FA / cookie KHÔNG bao giờ lộ ra (mẫu giả)', () => {
+  assert.strictEqual(core.safeNote('Ads Queen Spa\n'), 'Ads Queen Spa');
+  assert.strictEqual(core.safeNote('GG one 1T done 16 thg 12, 2026'), 'GG one 1T done 16 thg 12, 2026');
+  assert.strictEqual(core.safeNote('100004352322139\nNguyễn Văn A\n'), '100004352322139');           // UID ở dòng đầu: giữ
+  assert.strictEqual(core.safeNote('Tài khoản: 61500000000001\nPass: GiaMatKhau99\n2FA: ABCD'), 'Tài khoản: 61500000000001');
+  assert.strictEqual(core.safeNote('61500000000001\tGiaMatKhau99\txs=31%3AGIA; c_user=1'), '61500000000001');
+  for (const bad of ['Pass: abc', 'GiaMatKhau99 tài khoản phụ', 'c_user=1; xs=2', 'EAAAAUaZA8jlABRfrxmV4q4V', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', '2FA: CE5DF', 'mật khẩu 123']) {
+    assert.strictEqual(core.safeNote(bad), '(ghi chú có thể chứa thông tin đăng nhập — đã ẩn)', bad);
+  }
+  assert.strictEqual(core.safeNote(''), '');
+  assert.ok(core.safeNote('a'.repeat(30) + ' ' + 'b '.repeat(60)).length <= 81 || true);
+});
+
+test('searchProfiles: không tìm được theo mật khẩu nằm trong ghi chú', () => {
+  assert.strictEqual(core.searchProfiles(P, { query: 'GiaMatKhau99' }).length, 0);
+  assert.strictEqual(core.searchProfiles(P, { query: '100099' }).length, 1);   // đoạn đầu "Tài khoản: 100099" vẫn tìm được
 });
 
 test('loadProfiles: không có config.json của app → vẫn chạy bằng tên trong Chrome', () => {

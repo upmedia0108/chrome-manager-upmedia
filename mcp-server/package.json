@@ -1,6 +1,6 @@
 {
   "name": "chrome-manager-upmedia-mcp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "Cổng MCP cho Claude Desktop: tìm và mở Chrome profile theo tên trong Chrome Manager by UP Media",
   "main": "server/index.js",
