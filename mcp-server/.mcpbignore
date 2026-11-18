@@ -1,0 +1,6 @@
+# Chỉ loại trừ thư mục ở GỐC gói (dấu / đầu dòng) — KHÔNG được loại "dist/" chung chung
+# vì sẽ xóa nhầm node_modules/@modelcontextprotocol/sdk/dist (gói cài hỏng).
+/test/
+/scripts/
+/dist/
+*.md

@@ -2,7 +2,7 @@
 
 App desktop Windows (Electron) quản lý hàng chục–trăm Chrome profile trên 1 máy: tạo shortcut, phân nhóm, kiểm tra đăng nhập mạng xã hội, quản lý tiện ích, xuất/nhập cấu hình và nhiều hơn nữa.
 
-> Phiên bản hiện tại: **v1.9.4** — xem `CHANGELOG.md` để biết lịch sử đầy đủ.
+> Phiên bản hiện tại: **v1.10.6** — xem `CHANGELOG.md` để biết lịch sử đầy đủ.
 > Repo riêng: `github.com/upmedia0108/chrome-manager-upmedia` (tách khỏi monorepo `UP-Media`).
 
 ## Tính năng chính

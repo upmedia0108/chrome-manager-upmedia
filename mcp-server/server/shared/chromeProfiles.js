@@ -1,0 +1,265 @@
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+function getPossibleUserDataPaths() {
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  const home = os.homedir();
+  const drives = ['C', 'D', 'E', 'F'];
+
+  const paths = [
+    path.join(localAppData, 'Google', 'Chrome', 'User Data'),
+    path.join(home, 'AppData', 'Local', 'Google', 'Chrome', 'User Data'),
+  ];
+
+  for (const drive of drives) {
+    paths.push(`${drive}:\\No Delete\\Google\\Chrome\\User Data`);
+    paths.push(`${drive}:\\Google\\Chrome\\User Data`);
+    paths.push(`${drive}:\\Chrome\\User Data`);
+    paths.push(`${drive}:\\Users\\${os.userInfo().username}\\AppData\\Local\\Google\\Chrome\\User Data`);
+  }
+
+  return paths;
+}
+
+function findUserDataPath(customPath) {
+  if (customPath && fs.existsSync(customPath)) return customPath;
+  for (const p of getPossibleUserDataPaths()) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function readPreferences(profilePath) {
+  try {
+    const prefsPath = path.join(profilePath, 'Preferences');
+    if (!fs.existsSync(prefsPath)) return {};
+    const raw = fs.readFileSync(prefsPath, 'utf8');
+    const prefs = JSON.parse(raw);
+    return {
+      name: prefs?.profile?.name || null,
+      avatarIndex: prefs?.profile?.avatar_index ?? null,
+      gaiaName: prefs?.profile?.gaia_name || null,
+      email: prefs?.profile?.user_name || null,
+      usingDefaultName: typeof prefs?.profile?.using_default_name === 'boolean' ? prefs.profile.using_default_name : null
+    };
+  } catch {
+    return {};
+  }
+}
+
+// Đọc danh sách profile mà CHÍNH CHROME tự khai trong Local State (profile.info_cache).
+// Đây là "nguồn chân lý" về số profile Chrome đang có trên máy (giống menu đổi profile của Chrome).
+// Trả về object { "Default": { name }, "Profile 1": { name }, ... }
+function readInfoCache(userDataPath) {
+  try {
+    const lsPath = path.join(userDataPath, 'Local State');
+    if (!fs.existsSync(lsPath)) return {};
+    const ls = JSON.parse(fs.readFileSync(lsPath, 'utf8'));
+    return (ls && ls.profile && ls.profile.info_cache) || {};
+  } catch {
+    return {};
+  }
+}
+
+// Danh sách profile theo Local State (để UI so sánh/hiển thị)
+function getInfoCacheProfiles(userDataPath) {
+  const ic = readInfoCache(userDataPath);
+  return Object.keys(ic).map(dir => ({
+    profileDirectory: dir,
+    name: (ic[dir] && ic[dir].name) || dir,
+  }));
+}
+
+// Tìm ảnh avatar thực của profile (Google Profile Picture)
+function findProfileAvatar(profilePath) {
+  const candidates = [
+    path.join(profilePath, 'Google Profile Picture.png'),
+    path.join(profilePath, 'Google Profile.png'),
+    path.join(profilePath, 'Avatar.png')
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+  return null;
+}
+
+function getNextProfileDirectory(userDataPath) {
+  const entries = fs.readdirSync(userDataPath);
+  let max = 0;
+  for (const e of entries) {
+    const m = e.match(/^Profile (\d+)$/);
+    if (m) max = Math.max(max, parseInt(m[1]));
+  }
+  return `Profile ${max + 1}`;
+}
+
+function scanProfiles(customUserDataPath) {
+  const userDataPath = findUserDataPath(customUserDataPath);
+  if (!userDataPath) throw new Error('NOT_FOUND_USER_DATA');
+
+  const infoCache = readInfoCache(userDataPath);
+  const entries = fs.readdirSync(userDataPath);
+  const profiles = [];
+  const foundDirs = new Set();
+
+  for (const entry of entries) {
+    const isDefault = entry === 'Default';
+    const isProfile = /^Profile \d+$/.test(entry);
+    if (!isDefault && !isProfile) continue;
+
+    const profilePath = path.join(userDataPath, entry);
+    try {
+      if (!fs.statSync(profilePath).isDirectory()) continue;
+    } catch { continue; }
+
+    // LƯU Ý: bản cũ bỏ qua profile không có file "Preferences" → gây "quét thiếu"
+    // (profile mới tạo/đồng bộ dở chưa có Preferences). Nay vẫn nhận, lấy tên từ
+    // Local State (info_cache) nếu không đọc được Preferences.
+    const prefs = readPreferences(profilePath);
+    const avatarPath = findProfileAvatar(profilePath);
+    const ic = infoCache[entry] || {};
+    const icName = ic.name;
+
+    foundDirs.add(entry);
+    profiles.push({
+      profileDirectory: entry,
+      profilePath,
+      chromeProfileName: prefs.name || icName || entry,
+      gaiaName: prefs.gaiaName || null,
+      // Cho bộ lọc "Chưa đặt tên" (renderer/nameRules.js): Chrome tự đánh dấu profile đang dùng
+      // tên mặc định nó sinh ra (Person 1, Your Chrome…). Ưu tiên Local State, dự phòng Preferences.
+      chromeUsingDefaultName: typeof ic.is_using_default_name === 'boolean' ? ic.is_using_default_name
+        : (typeof prefs.usingDefaultName === 'boolean' ? prefs.usingDefaultName : null),
+      chromeGaiaNames: [prefs.gaiaName, ic.gaia_name, ic.gaia_given_name].filter(Boolean),
+      email: prefs.email || null,
+      avatarIndex: prefs.avatarIndex,
+      avatarPath: avatarPath || null,
+      shortcutName: '',
+      group: 'Khác',
+      hasShortcut: false
+    });
+  }
+
+  profiles.sort((a, b) => {
+    if (a.profileDirectory === 'Default') return -1;
+    if (b.profileDirectory === 'Default') return 1;
+    const numA = parseInt(a.profileDirectory.replace('Profile ', '')) || 0;
+    const numB = parseInt(b.profileDirectory.replace('Profile ', '')) || 0;
+    return numA - numB;
+  });
+
+  // So sánh với danh sách Chrome tự khai (info_cache) → tìm profile bị thiếu khi quét
+  const machineProfiles = getInfoCacheProfiles(userDataPath);
+  const missing = computeMissingProfiles(machineProfiles, foundDirs, userDataPath);
+
+  return {
+    profiles,
+    userDataPath,
+    machineCount: machineProfiles.length,
+    machineProfiles,
+    missing,
+  };
+}
+
+// Xóa các "profile ma" khỏi Local State của Chrome (các entry Chrome còn nhớ nhưng thư mục đã mất).
+// LƯU Ý: chỉ nên gọi khi Chrome ĐÃ ĐÓNG, nếu không Chrome có thể ghi đè lại Local State khi thoát.
+function removeProfilesFromLocalState(userDataPath, dirs) {
+  try {
+    const lsPath = path.join(userDataPath, 'Local State');
+    if (!fs.existsSync(lsPath)) return { ok: false, removed: 0 };
+    const ls = JSON.parse(fs.readFileSync(lsPath, 'utf8'));
+    if (!ls.profile || !ls.profile.info_cache) return { ok: false, removed: 0 };
+    const targets = new Set(dirs || []);
+    let removed = 0;
+    for (const d of targets) {
+      if (ls.profile.info_cache[d] !== undefined) { delete ls.profile.info_cache[d]; removed++; }
+    }
+    // Dọn thêm ở các danh sách phụ nếu có
+    if (Array.isArray(ls.profile.profiles_order))
+      ls.profile.profiles_order = ls.profile.profiles_order.filter(d => !targets.has(d));
+    if (Array.isArray(ls.profile.last_active_profiles))
+      ls.profile.last_active_profiles = ls.profile.last_active_profiles.filter(d => !targets.has(d));
+    if (removed > 0) fs.writeFileSync(lsPath, JSON.stringify(ls), 'utf8');
+    return { ok: true, removed };
+  } catch (e) {
+    return { ok: false, removed: 0, error: e.message };
+  }
+}
+
+// Hàm logic thuần (có test): từ danh sách Chrome tự khai + tập dir đã quét → profile bị thiếu + lý do.
+// existsFn cho phép test không phụ thuộc ổ đĩa thật.
+function computeMissingProfiles(machineProfiles, foundDirs, userDataPath, existsFn) {
+  const found = foundDirs instanceof Set ? foundDirs : new Set(foundDirs || []);
+  const exists = existsFn || (dir => {
+    try { return fs.existsSync(path.join(userDataPath, dir)); } catch { return false; }
+  });
+  return (machineProfiles || [])
+    .filter(m => !found.has(m.profileDirectory))
+    .map(m => {
+      const standard = m.profileDirectory === 'Default' || /^Profile \d+$/.test(m.profileDirectory);
+      let reason;
+      if (!exists(m.profileDirectory)) reason = 'Thư mục không còn trên máy (Chrome vẫn nhớ trong Local State)';
+      else if (!standard) reason = 'Tên thư mục không theo chuẩn Default / Profile N';
+      else reason = 'Thư mục có nhưng chưa đọc được dữ liệu';
+      return { profileDirectory: m.profileDirectory, name: m.name, reason };
+    });
+}
+
+// ── Hướng A: đồng bộ TÊN THÂN THIỆN trong app → TÊN HIỂN THỊ của Chrome ──
+// Để nhìn cửa sổ Chrome (nút profile góc phải + taskbar) là biết profile nào.
+// Hàm thuần (có test): set tên vào object Local State đã parse.
+function setNameInLocalStateObj(ls, dir, name) {
+  if (!ls || typeof ls !== 'object') return false;
+  const nm = (name || '').trim();
+  if (!nm) return false;
+  ls.profile = ls.profile || {};
+  ls.profile.info_cache = ls.profile.info_cache || {};
+  const e = ls.profile.info_cache[dir] = ls.profile.info_cache[dir] || {};
+  e.name = nm;
+  e.shortcut_name = nm;
+  e.is_using_default_name = false;
+  return true;
+}
+
+// Ghi tên lên Local State (nguồn Chrome dùng để hiển thị) + Preferences của profile (dự phòng).
+// CHỈ nên gọi khi profile đó đang ĐÓNG (Local State dùng chung — Chrome đang chạy có thể ghi đè).
+function applyProfileName(userDataPath, dir, name) {
+  const nm = (name || '').trim();
+  if (!userDataPath || !dir || !nm) return false;
+  let ok = false;
+  try {
+    const lsPath = path.join(userDataPath, 'Local State');
+    if (fs.existsSync(lsPath)) {
+      const ls = JSON.parse(fs.readFileSync(lsPath, 'utf8'));
+      if (setNameInLocalStateObj(ls, dir, nm)) {
+        fs.writeFileSync(lsPath, JSON.stringify(ls), 'utf8');
+        ok = true;
+      }
+    }
+  } catch { /* ignore */ }
+  try {
+    const prefPath = path.join(userDataPath, dir, 'Preferences');
+    if (fs.existsSync(prefPath)) {
+      const prefs = JSON.parse(fs.readFileSync(prefPath, 'utf8'));
+      prefs.profile = prefs.profile || {};
+      prefs.profile.name = nm;
+      prefs.profile.using_default_name = false;
+      fs.writeFileSync(prefPath, JSON.stringify(prefs), 'utf8');
+      ok = true;
+    }
+  } catch { /* ignore */ }
+  return ok;
+}
+
+module.exports = {
+  scanProfiles,
+  findUserDataPath,
+  getPossibleUserDataPaths,
+  getNextProfileDirectory,
+  getInfoCacheProfiles,
+  computeMissingProfiles,
+  removeProfilesFromLocalState,
+  setNameInLocalStateObj,
+  applyProfileName,
+};

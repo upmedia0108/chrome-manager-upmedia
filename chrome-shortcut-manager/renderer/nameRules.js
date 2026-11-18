@@ -10,7 +10,7 @@
 (function (root) {
   // Tên mặc định Chrome tự sinh (EN + VI): "Person 1", "Người dùng 2", "Profile 14", "Your Chrome"…
   const DEFAULT_NAME_PATTERNS = [
-    /^(person|user|profile|người|người dùng|hồ sơ)( \d+)?$/,
+    /^(person|user|profile|người|người dùng|hồ sơ|cá nhân)( \d+)?$/,   // Chrome tiếng Việt đặt mặc định "Cá nhân N"
     /^(your chrome|chrome của bạn|default)$/,
   ];
 

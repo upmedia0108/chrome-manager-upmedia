@@ -2,6 +2,15 @@
 
 Tất cả thay đổi theo từng phiên bản.
 
+## v1.10.6
+- **Sửa "Đang mở" chỉ thấy 1 Chrome.** Chẩn đoán trên máy thật (18/11/2026): Chrome gom MỌI profile vào 1 tiến trình trình duyệt, dòng lệnh chỉ còn `--profile-directory` của profile mở đầu tiên → cách đọc dòng lệnh (PowerShell CIM) chỉ thấy 1 profile. Module mới `src/chromeWindows.js`:
+  - `getLoadedProfileDirs(userDataPath)`: profile đang mở = Chrome đang khóa `Network/Cookies` (hoặc `Cookies`, `Local Storage/leveldb/LOCK`) — Node thuần, khớp 3/3 Chrome đang mở trên máy thật. Thay `getChromeCommandLines`/`getRunningProfileDirs`/`isChromeRunningForProfile` trong `main.js` (đã gỡ cách cũ). Vòng làm mới 4 giây không còn gọi PowerShell.
+  - `focusProfileWindow(dir)`: PowerShell (`-EncodedCommand`) liệt kê cửa sổ chrome.exe, đọc thuộc tính `RelaunchCommand` (`--profile-directory="Profile N"`) / `AppUserModelID` (`Chrome.UserData.ProfileN`, Default = `Chrome`) để tìm ĐÚNG cửa sổ của profile → sửa lỗi bản 1.10.0 (khớp tiền tố: Profile 1 dính Profile 14; dùng cửa sổ chính của tiến trình nên nhảy nhầm; `SW_RESTORE` làm thu nhỏ cửa sổ đang phóng to). Nay chỉ khôi phục cửa sổ đang thu nhỏ, thử mẹo phím Alt khi Windows chặn giành focus. Mẫu nhận diện dùng chung JS ↔ PowerShell (`RELAUNCH_DIR_RE`, `AUMID_PROFILE_RE`), có test bằng mẫu thật.
+- `open-profile`: profile đang mở → đưa cửa sổ lên trước (`focused`); không thấy cửa sổ nào (profile chạy ngầm) → mở cửa sổ mới.
+- Renderer: `refreshRunning` chỉ vẽ lại khi tập "Đang mở" thay đổi (trước đây vẽ lại danh sách mỗi 4 giây khi đang lọc "Đang mở").
+- `nameRules.js`: thêm mẫu tên mặc định "Cá nhân N" (Chrome tiếng Việt).
+- Thêm 5 unit test (`test/unit.test.js`).
+
 ---
 
 ## v1.10.0

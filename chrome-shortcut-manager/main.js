@@ -29,6 +29,7 @@ const extHost = require('./src/extHost');
 const history = require('./src/history');
 const accounts = require('./src/accounts');
 const social = require('./src/socialAccounts');
+const chromeWindows = require('./src/chromeWindows');
 
 let mainWindow;
 
@@ -249,46 +250,21 @@ ipcMain.handle('check-duplicate-name', async (_, profileDirectory, name) => {
   return { isDuplicate: false };
 });
 
-// Lấy command line của mọi tiến trình chrome.exe.
-// Win 11 24H2 đã GỠ BỎ wmic → ưu tiên PowerShell CIM (có sẵn mọi bản Windows 10/11),
-// chỉ fallback về wmic cho máy cũ. Nhờ vậy chức năng "chống mở trùng" không hỏng về sau.
-function getChromeCommandLines() {
-  return new Promise(resolve => {
-    const ps = "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | ForEach-Object { $_.CommandLine }";
-    execFile('powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', ps],
-      { windowsHide: true, maxBuffer: 1024 * 1024 * 16, timeout: 8000 },
-      (err, stdout) => {
-        if (!err && stdout && stdout.trim()) { resolve(stdout); return; }
-        // Fallback: wmic (máy Windows cũ vẫn còn)
-        exec('wmic process where "name=\'chrome.exe\'" get CommandLine /format:list',
-          { windowsHide: true },
-          (e2, out2) => resolve((!e2 && out2) ? out2 : ''));
-      });
-  });
+// Chrome đang mở THEO TỪNG PROFILE (v1.10.6): dò khóa file dữ liệu của profile — xem src/chromeWindows.js.
+// Bản cũ đọc dòng lệnh tiến trình chrome.exe → chỉ thấy profile mở ĐẦU TIÊN (Chrome gom mọi profile vào 1 tiến trình).
+function currentUserDataPath() {
+  return chromeProfiles.findUserDataPath(configStore.getConfig().settings?.chromeUserDataPath || null);
+}
+
+// Tập hợp các profile-directory (chữ thường) hiện đang được Chrome mở.
+// Dùng để không mở chồng Chrome đã mở sẵn + nhãn "Đang mở" (làm mới mỗi 4 giây — nhẹ, không gọi PowerShell).
+async function getRunningProfileDirs() {
+  try { return chromeWindows.getLoadedProfileDirs(currentUserDataPath()); }
+  catch { return new Set(); }
 }
 
 async function isChromeRunningForProfile(profileDirectory) {
-  const stdout = await getChromeCommandLines();
-  if (!stdout) return false;
-  const lower = stdout.toLowerCase();
-  const dir = profileDirectory.toLowerCase();
-  return lower.includes(`--profile-directory=${dir}`) || lower.includes(`profile-directory="${dir}"`);
-}
-
-// Tập hợp các profile-directory hiện đang được Chrome mở.
-// Dùng để không mở chồng Chrome đã mở sẵn (tránh mở trùng qua mỗi lần thao tác / reload / khởi động).
-async function getRunningProfileDirs() {
-  const set = new Set();
-  const stdout = await getChromeCommandLines();
-  if (!stdout) return set;
-  const re = /--profile-directory=("([^"]+)"|([^\s"]+))/gi;
-  let m;
-  while ((m = re.exec(stdout)) !== null) {
-    const dir = (m[2] || m[3] || '').trim();
-    if (dir) set.add(dir.toLowerCase());
-  }
-  return set;
+  return (await getRunningProfileDirs()).has(String(profileDirectory || '').toLowerCase());
 }
 
 ipcMain.handle('delete-chrome-profile', async (_, profilePath, profileDirectory, displayName) => {
@@ -378,9 +354,11 @@ ipcMain.handle('delete-shortcut', async (_, shortcutName) => {
 
 ipcMain.handle('open-profile', async (_, profileDirectory, opts) => {
   try {
-    // Nếu Chrome đã mở sẵn profile này thì không mở chồng lần 2 (trừ khi ép mở)
+    // Chrome đã mở sẵn profile này → đưa cửa sổ của nó lên trước thay vì mở chồng (trừ khi ép mở).
+    // Không thấy cửa sổ nào (profile còn chạy ngầm) → mở cửa sổ mới như bình thường.
     if (!(opts && opts.force) && await isChromeRunningForProfile(profileDirectory)) {
-      return { success: true, alreadyOpen: true };
+      const f = await chromeWindows.focusProfileWindow(profileDirectory);
+      if (!f.notFound) return { success: true, alreadyOpen: true, focused: !!f.success };
     }
     const config = configStore.getConfig();
     const userDataPath = config.settings?.chromeUserDataPath || null;
@@ -425,39 +403,12 @@ ipcMain.handle('sync-all-profile-names', async () => {
   return { success: true, count };
 });
 
-// Hướng B: đưa cửa sổ Chrome của 1 profile lên trước màn hình
+// Hướng B: đưa cửa sổ Chrome của 1 profile lên trước màn hình (tìm đúng cửa sổ theo thuộc tính Windows của từng cửa sổ;
+// "Profile 1" không dính "Profile 14"; cửa sổ đang phóng to giữ nguyên) — src/chromeWindows.js
 ipcMain.handle('focus-profile-window', async (_, profileDirectory) => {
   const dir = String(profileDirectory || '');
   if (!dir) return { success: false };
-  const target = dir.replace(/'/g, "''");
-  const ps = [
-    "$ErrorActionPreference='SilentlyContinue'",
-    'Add-Type @"',
-    'using System;using System.Runtime.InteropServices;',
-    'public class UPWin{',
-    ' [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);',
-    ' [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h,int n);',
-    '}',
-    '"@',
-    `$t='${target}'`,
-    '$found=$false',
-    'Get-CimInstance Win32_Process -Filter "Name=\'chrome.exe\'" | ForEach-Object {',
-    " if($_.CommandLine -and ($_.CommandLine -match ([regex]::Escape('--profile-directory=')+'\"?'+[regex]::Escape($t)))){",
-    '  $p=Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue',
-    '  if($p -and $p.MainWindowHandle -ne 0){',
-    '   [UPWin]::ShowWindowAsync($p.MainWindowHandle,9) | Out-Null',
-    '   [UPWin]::SetForegroundWindow($p.MainWindowHandle) | Out-Null',
-    '   $found=$true } } }',
-    "if($found){Write-Output 'OK'}else{Write-Output 'NONE'}",
-  ].join("\n");
-  return await new Promise(resolve => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps],
-      { windowsHide: true, timeout: 8000 },
-      (err, stdout) => {
-        if (!err && /OK/.test(stdout)) resolve({ success: true });
-        else resolve({ success: false, notFound: /NONE/.test(stdout || '') });
-      });
-  });
+  return chromeWindows.focusProfileWindow(dir);
 });
 
 ipcMain.handle('open-profile-url', async (_, profileDirectory, url) => {

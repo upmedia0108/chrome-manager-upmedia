@@ -12,6 +12,7 @@
 4. **Quy trình phát hành:** `.claude/skills/ship-upmedia/SKILL.md` — đọc toàn bộ. Nội dung tool-agnostic; nếu skill nhắc tool riêng của Claude (vd GitHub MCP), dùng công cụ tương đương của agent bạn.
 
 ## Bối cảnh tối thiểu
+- **Cổng MCP cho Claude Desktop:** `mcp-server/` (Node, độc lập với app) — đọc `mcp-server/README.md` + `CLAUDE.md` Mục 18. Sửa `chromeProfiles.js`/`accounts.js` của app thì chạy `npm run sync` trong `mcp-server/`.
 - **App:** `chrome-shortcut-manager/` — Electron (Windows 10/11 x64 ONLY). `main.js` (IPC) ↔ `preload.js` ↔ `renderer/*`. Module trong `src/`.
 - **Nhánh phát hành:** `main`. Sửa xong push thẳng `main` (KHÔNG mở PR trừ khi được yêu cầu). Trước khi sửa: `git fetch origin main && git checkout -B work-main origin/main`, làm việc, rồi `git push origin work-main:main`.
 - **CI (GitHub Actions `.github/workflows/build-electron.yml`):** push lên `main` **có đụng code** → tự bump patch version (`npm version`, cập nhật cả `package.json` + `package-lock.json`), `npm ci`, `npm test`, build `.exe` (NSIS + Portable), tạo Release (tag trỏ đúng commit bump nhờ `target_commitish`), gửi Telegram.

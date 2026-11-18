@@ -14,6 +14,12 @@ let lastScan = { machineCount: 0, missing: [] }; // kết quả so sánh "Chrome
 
 // ── Changelog — lịch sử phiên bản (mới nhất lên đầu) ──────
 const CHANGELOG = [
+  { v: '1.10.6', items: [
+    'Sửa lỗi nhãn "Đang mở" chỉ hiện 1 Chrome dù mở nhiều: nay nhận đúng TỪNG Chrome đang mở (kiểm tra file dữ liệu Chrome đang giữ) — nhanh, nhẹ máy hơn hẳn (không còn gọi PowerShell mỗi 4 giây)',
+    'Bấm nhãn "Đang mở" nhảy đúng cửa sổ của profile đó (trước đây có thể nhảy nhầm, vd Profile 1 sang Profile 14); cửa sổ đang phóng to giữ nguyên, chỉ cửa sổ đang thu nhỏ mới được bung ra',
+    'Bấm mở một Chrome đang mở sẵn → đưa luôn cửa sổ đó lên trước thay vì chỉ báo "đang mở"',
+    'Bộ lọc "Chưa đặt tên" nhận thêm tên mặc định tiếng Việt của Chrome ("Cá nhân 5"…)',
+  ] },
   { v: '1.10.0', items: [
     'Định vị Chrome đang mở: tên thân thiện Sếp đặt được ghi thẳng lên tên hiển thị của Chrome — nhìn cửa sổ (nút profile góc phải + taskbar / Alt-Tab) là biết ngay profile nào. Tự đồng bộ mỗi khi mở profile; có nút "Đồng bộ tên" trong Cài đặt để đồng bộ tất cả cùng lúc',
     'Nhãn "● Đang mở" trên thẻ/hàng cho profile đang chạy Chrome (tự cập nhật mỗi 4 giây); bộ lọc "Đang mở" ở cột trái; bấm nhãn để đưa cửa sổ Chrome đó lên trước màn hình',
@@ -529,7 +535,11 @@ async function openProfileFromUI(dir, card) {
   bumpOpenCount(dir);
   if (card) { const oc = card.querySelector('.row-opens'); if (oc) oc.textContent = getOpenCount(dir); }
   const res = await window.app.openProfile(dir);
-  if (res.success) showToast(res.alreadyOpen ? 'Chrome profile này đang mở sẵn — không mở thêm cửa sổ mới.' : 'Đang mở Chrome profile...', res.alreadyOpen ? 'warning' : 'info');
+  if (res.success) {
+    if (res.alreadyOpen && res.focused) showToast('Chrome này đang mở — đã đưa cửa sổ lên trước', 'info');
+    else if (res.alreadyOpen) showToast('Chrome profile này đang mở sẵn — bấm vào Chrome đó trên thanh taskbar', 'warning');
+    else showToast('Đang mở Chrome profile...', 'info');
+  }
   else showToast(res.error, 'error');
   setTimeout(refreshRunning, 1200); // cập nhật nhãn "đang mở"
   return res;
@@ -1678,8 +1688,11 @@ function isRunning(p) {
 async function refreshRunning() {
   try {
     const arr = await window.app.getRunningProfiles();
-    runningSet = new Set((arr || []).map(s => String(s).toLowerCase()));
-  } catch { /* giữ nguyên set cũ */ }
+    const next = new Set((arr || []).map(s => String(s).toLowerCase()));
+    // Không đổi gì thì thôi — tránh vẽ lại danh sách mỗi 4 giây (mất chữ đang gõ khi đang lọc "Đang mở")
+    if (next.size === runningSet.size && [...next].every(d => runningSet.has(d))) return;
+    runningSet = next;
+  } catch { return; /* giữ nguyên set cũ */ }
   updateRunningBadges();
 }
 
@@ -1703,7 +1716,7 @@ function updateRunningBadges() {
 
 async function focusProfileWindow(dir) {
   const r = await window.app.focusProfileWindow(dir);
-  if (!r.success) showToast(r.notFound ? 'Không tìm thấy cửa sổ Chrome của profile này (có thể đã đóng)' : 'Không đưa được cửa sổ lên trước', 'warning');
+  if (!r.success) showToast(r.notFound ? 'Không tìm thấy cửa sổ Chrome của profile này (có thể đã đóng)' : 'Windows chưa cho đưa cửa sổ lên trước — bấm vào Chrome đó trên thanh taskbar', 'warning');
 }
 
 // ── Scan ──────────────────────────────────────────────────

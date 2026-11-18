@@ -1,7 +1,8 @@
 # CHROME MANAGER BY UP MEDIA — Tài liệu kỹ thuật toàn diện
 
 > Tài liệu này dành cho các phiên Claude Code / dev mới để hiểu toàn bộ lịch sử, kiến trúc, vấn đề đã giải quyết và định hướng phát triển của phần mềm này.
-> Cập nhật lần cuối: **v1.10.0** (định vị Chrome đang mở + đồng bộ tên lên Chrome — Mục 17). Trước đó v1.9.4 (sửa bộ lọc "Chưa đặt tên" — Mục 16), v1.9.0 (repo riêng + ghim profile + box so sánh quét + Basic/Pro + chống mở trùng bền trên Win 11 24H2) — Mục 15.
+> Cập nhật lần cuối: **v1.10.6** (sửa nhận diện Chrome đang mở theo từng profile + nhảy đúng cửa sổ — Mục 19). Trước đó **v1.10.0** (định vị Chrome đang mở + đồng bộ tên lên Chrome — Mục 17). Trước đó v1.9.4 (sửa bộ lọc "Chưa đặt tên" — Mục 16), v1.9.0 (repo riêng + ghim profile + box so sánh quét + Basic/Pro + chống mở trùng bền trên Win 11 24H2) — Mục 15.
+> **Cổng MCP cho Claude Desktop** (Claude tìm & mở Chrome theo tên): thư mục `mcp-server/` — Mục 18 + `mcp-server/README.md`.
 > **Repo riêng (mới):** `github.com/upmedia0108/chrome-manager-upmedia` — tách khỏi monorepo `UP-Media` cũ. Nhánh phát hành vẫn là `main`.
 
 ---
@@ -16,6 +17,7 @@
 - **Bàn giao/định hướng → `HANDOFF_V2.md`**. Quy trình phát hành → `.claude/skills/ship-upmedia/SKILL.md`.
 - **Nội dung cũ / tính năng đã gỡ → `HISTORY.md`** (đã tách khỏi tài liệu này).
 - **Bản đang cài & nghiệm thu thật → `DEPLOY_STATUS.md`** (repo/Release mới nhất ≠ đã nghiệm thu).
+- **Cổng MCP (`mcp-server/`) → `mcp-server/README.md`** (cài đặt, cấu trúc, test, đóng gói `.mcpb`).
 - **AI khác không phải Claude (Codex…) → đọc `AGENTS.md` ở repo root** (điểm vào cho agent khác; cùng trỏ về đúng bộ nguồn/quy trình này — giữ 2 file nhất quán khi cập nhật).
 
 **Những điểm đã THAY ĐỔI so với mô tả ở các mục cũ (đừng làm theo mục cũ):**
@@ -147,7 +149,7 @@ Push lên `main` → GitHub Actions (`windows-latest`) →
 ## 4. LƯU TRỮ DỮ LIỆU
 
 ### config.json
-Đường dẫn: `%APPDATA%\Chrome Manager by UP Media\config.json` (Electron userData)
+Đường dẫn THỰC TẾ trên máy (đã kiểm 18/11/2026): `%APPDATA%\chrome-manager-upmedia\config.json` (Electron userData lấy theo `name` trong package.json; thư mục cũ `%APPDATA%\chrome-shortcut-manager` là của bản rất cũ)
 
 ```json
 {
@@ -703,6 +705,7 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 - Lưu ý kỹ thuật: tên profile đã đăng nhập Google có thể hiện tên tài khoản là chính; tên local vẫn hiện ở taskbar/menu.
 
 ### 17.2 Hướng B — Chrome đang mở + nhảy tới cửa sổ
+> ⚠️ Cách dò & nhảy cửa sổ mô tả dưới đây ĐÃ THAY ở v1.10.6 (chỉ thấy 1 Chrome, nhảy nhầm) — xem **Mục 19**. Phần renderer (nhãn, bộ lọc, làm mới 4 giây) vẫn đúng.
 - `main.js` IPC `focus-profile-window`: PowerShell `Get-CimInstance Win32_Process` lọc `chrome.exe` theo `--profile-directory=` (khớp cả dạng có/không dấu ngoặc kép) → `SetForegroundWindow` MainWindowHandle.
 - `renderer.js`: `runningSet` + `refreshRunning()` (gọi `get-running-profiles`) cập nhật mỗi 4 giây (`setInterval`) + sau quét + sau khi mở profile. `updateRunningBadges()` bật/tắt `.running-badge` + class `.is-running` + số đếm bộ lọc. Bộ lọc sidebar `{type:'running'}` trong `applyFilter`. Thẻ + hàng có `data-profileDir` sẵn.
 - `.running-badge` là `<button>` (nằm trong danh sách loại trừ của card-clickable nên không mở Chrome khi bấm); bấm → `focusProfileWindow`.
@@ -715,3 +718,64 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 - [ ] Nhãn "● Đang mở" hiện đúng profile đang chạy, tự tắt khi đóng Chrome (trong ~4s)
 - [ ] Bộ lọc "Đang mở" ở cột trái lọc đúng
 - [ ] Bấm nhãn "Đang mở" → cửa sổ Chrome đó nhảy lên trước màn hình
+
+---
+
+## 18. CỔNG MCP CHO CLAUDE DESKTOP (`mcp-server/`, v1.1.0)
+
+> Nhu cầu: Sếp nói với Claude "mở Chrome <tên>" → Claude tự tìm đúng profile và mở. Claude trên mây KHÔNG gọi được API localhost của máy, nên làm **MCP server chạy local qua stdio**, đóng gói **Desktop Extension `.mcpb`** cài 1 lần vào app Claude (Claude Desktop có sẵn Node, không cần cài thêm). Chat Claude trên mây đã liên kết máy cũng gọi được (qua cầu nối thiết bị).
+
+### 18.1 Kiến trúc
+- Thư mục **`mcp-server/`** (độc lập với app, KHÔNG nằm trong `chrome-shortcut-manager/`, CI build app không đụng tới).
+- `server/index.js`: 4 lệnh MCP (SDK `@modelcontextprotocol/sdk` 1.32.2 + `zod` 4) — `tim_chrome` (chỉ đọc), `mo_chrome`, `mo_link`, `mo_nhom` + hướng dẫn (instructions) cho Claude.
+- `server/core.js`: logic thuần — đọc `%APPDATA%\chrome-manager-upmedia\config.json` (dò cả `Chrome Manager by UP Media`) (tên, nhóm, danh mục con, ghi chú, ghim), quét Chrome User Data, khớp tên (không dấu, ưu tiên khớp chặt → lỏng; trùng nhiều trả danh sách), mở Chrome (`spawn` chrome.exe, không `--remote-debugging-port`), dò Chrome đang mở + đưa cửa sổ lên trước bằng module chung `chromeWindows.js` (từ MCP v1.1.0 — Mục 19).
+- `server/shared/`: **bản sao** `chromeProfiles.js`, `accounts.js`, `chromeWindows.js` của app. **Sửa 3 file này trong `chrome-shortcut-manager/src` → chạy `cd mcp-server && npm run sync`**; test đối chiếu báo đỏ nếu lệch.
+- Không cần mở app; cache quét 20 giây.
+
+### 18.2 An toàn
+- Chỉ đọc + mở: không ghi vào config/Chrome, không xóa, không đọc cookie/mật khẩu.
+- Tên khớp nhiều → không mở, trả danh sách để Claude hỏi lại. Mở nhóm > 5 Chrome → cần `xac_nhan=true`.
+- `mo_link` chỉ nhận http/https (chuẩn hóa qua `URL`, không chèn được tham số dòng lệnh Chrome).
+
+### 18.3 Test & đóng gói
+- `cd mcp-server && npm install && npm test` — 22 test: lõi + đầu-cuối bằng client MCP chính thức (chạy khô `UPM_MCP_DRY_RUN=1`).
+- `npm run pack` — sync → test → `mcpb validate` → `mcpb pack` → **giải nén gói ra thư mục tạm và chạy thử** (`scripts/smoke-bundle.js`) → `dist/Chrome-Manager-UP-Media-MCP-<version>.mcpb` (`dist/` không lên Git). Nâng version: sửa cả `package.json` + `manifest.json`.
+- ⚠️ `.mcpbignore` phải dùng mẫu có `/` đầu dòng (`/dist/`, `/test/`): mẫu `dist/` chung chung từng xóa nhầm `node_modules/@modelcontextprotocol/sdk/dist` → gói hỏng (bước chạy thử sau đóng gói sẽ chặn lỗi này).
+- Lưu ý môi trường Cowork: shell trên máy Sếp không xóa được file trong thư mục kết nối → `npm ci` ở đó lỗi EPERM; đóng gói ở máy khác/cloud rồi chép `.mcpb` về.
+
+### 18.4 Khác app / giới hạn đã biết
+- Không đồng bộ tên lên Chrome trước khi mở như app v1.10.0 (`syncChromeNameFor`) — cổng chỉ đọc.
+- Đang mở + nhảy cửa sổ: từ MCP **1.1.0** dùng chung `chromeWindows.js` với app v1.10.6 (Mục 19). MCP 1.0.0 dò theo dòng lệnh → chỉ thấy profile mở đầu tiên (đã xác nhận trên máy thật, đã bỏ). `mo_chrome`: đang mở → nhảy cửa sổ; chạy ngầm không có cửa sổ → mở cửa sổ mới.
+
+### Hạng mục cần nghiệm thu trên Windows thật (MCP v1.1.0)
+- [ ] Cài `.mcpb` vào Claude Desktop thành công, Claude thấy 4 lệnh
+- [ ] "Mở Chrome <tên>" (có dấu / không dấu / "Profile N") mở đúng profile
+- [ ] Tên trùng nhiều → Claude hỏi lại; nhóm > 5 → Claude hỏi xác nhận
+- [ ] "Mở <trang> trong Chrome <tên>" mở đúng trang trong đúng profile
+- [ ] Profile đang mở → cửa sổ nhảy lên trước, không mở chồng
+- [ ] Trường hợp Chrome đang chạy do Chrome Manager (quyền Administrator) mở trước
+
+---
+
+## 19. CẬP NHẬT v1.10.6 (Chrome đang mở THEO TỪNG PROFILE + nhảy đúng cửa sổ)
+
+### 19.1 Chẩn đoán trên máy thật (18/11/2026, công cụ `_chan-doan/` — không lên Git)
+- Mở 3 Chrome (Default, Profile 1, Profile 33) → chỉ có **1 tiến trình trình duyệt** chrome.exe (47 tiến trình con `--type=`), dòng lệnh chỉ có `--profile-directory=Default` → cách cũ chỉ thấy 1 Chrome (đúng lỗi Sếp báo).
+- Mỗi cửa sổ Chrome mang thuộc tính Windows (shell property store, `PKEY_AppUserModel_*`):
+  - `RelaunchCommand` = `"…\chrome.exe" --profile-directory="Profile 33"` (Default: `--profile-directory=Default`)
+  - `AppUserModelID` = `Chrome.UserData.Profile33` · Default = `Chrome` · cửa sổ app PWA = `Chrome._crx_<id>.UserData.Profile1` (không có RelaunchCommand)
+- File dữ liệu của profile đang mở bị khóa: `Network\Cookies` không mở được (độc quyền), `Local Storage\leveldb\LOCK` đọc báo lỗi; `History` KHÔNG khóa. Khớp đúng 3/3 profile đang mở, 0 profile đóng bị báo nhầm.
+- Chrome chạy KHÔNG quyền Admin (dòng lệnh đọc được từ tiến trình thường) dù app chạy Admin.
+- `config.json` của app thật nằm ở `%APPDATA%\chrome-manager-upmedia\` (không phải `Chrome Manager by UP Media`).
+
+### 19.2 Module mới `src/chromeWindows.js` (chép sang `mcp-server/server/shared/` — `npm run sync`)
+- `getLoadedProfileDirs(userDataPath)` → Set profile-directory (chữ thường) đang mở = khóa file (`isProfileLoaded` / `isFileLocked`: mở lỗi → khóa; mở được nhưng đọc lỗi hoặc đọc ra 0 byte khi file > 0 → khóa vùng byte). Node thuần, có `fsi` thay thế để test.
+- `windowProfileDir(aumid, relaunch)` + hằng `RELAUNCH_DIR_RE`, `AUMID_PROFILE_RE` — mẫu dùng chung cho JS (test) và PowerShell (chạy thật).
+- `buildFocusScript(dir)` / `focusProfileWindow(dir)`: PowerShell `-EncodedCommand` + C# (`EnumWindows`, `SHGetPropertyStoreForWindow`) → chọn cửa sổ của đúng profile (ưu tiên cửa sổ trình duyệt hơn PWA) → `IsIconic` thì `SW_RESTORE`, `SetForegroundWindow` (+ mẹo phím Alt). Trả `{success}` / `{notFound}` / `{blocked}`.
+- `main.js`: `getRunningProfileDirs`/`isChromeRunningForProfile` dùng `getLoadedProfileDirs` (gỡ `getChromeCommandLines` + wmic); `focus-profile-window` gọi module; `open-profile` profile đang mở → focus, `notFound` → mở cửa sổ mới.
+- `renderer.js`: `refreshRunning` chỉ cập nhật khi tập đang mở đổi.
+
+### 19.3 Còn cần nghiệm thu trên Windows thật (v1.10.6)
+- [ ] Mở 3–4 Chrome → nhãn "● Đang mở" + bộ lọc "Đang mở" hiện ĐỦ, đóng 1 Chrome → nhãn tắt trong ~4 giây (nếu không tắt: Chrome giữ profile chạy ngầm sau khi đóng cửa sổ → cân nhắc kết hợp thêm danh sách cửa sổ)
+- [ ] Bấm nhãn "Đang mở" của Profile 1 khi Profile 14 cũng mở → nhảy đúng Profile 1; cửa sổ phóng to giữ nguyên; cửa sổ thu nhỏ được bung ra
+- [ ] Bấm mở 1 Chrome đang mở → cửa sổ đó nhảy lên trước (toast "đã đưa cửa sổ lên trước")

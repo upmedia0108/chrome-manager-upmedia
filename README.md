@@ -5,7 +5,8 @@ Phần mềm desktop Windows (Electron) quản lý nhiều Chrome profile: tạo
 - **Mã nguồn ứng dụng:** thư mục [`chrome-shortcut-manager/`](chrome-shortcut-manager/)
 - **Tài liệu kỹ thuật đầy đủ:** [`CLAUDE.md`](CLAUDE.md) (đọc Mục 0 trước)
 - **Hướng dẫn đẩy lên GitHub (không rành tech):** [`HUONG-DAN-GITHUB.txt`](HUONG-DAN-GITHUB.txt)
-- **Phiên bản hiện tại:** v1.9.4
+- **Cổng MCP cho Claude (Claude tìm & mở Chrome theo tên):** [`mcp-server/README.md`](mcp-server/README.md) — file cài `mcp-server/dist/*.mcpb`
+- **Phiên bản hiện tại:** v1.10.6
 
 ## Đẩy thay đổi lên GitHub
 - Lần đầu: chạy `CAI-DAT-LAN-DAU.bat` (xem `HUONG-DAN-GITHUB.txt`).

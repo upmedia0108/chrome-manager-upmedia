@@ -230,3 +230,79 @@ test('scanProfiles: đọc cờ tên mặc định + tên Google từ Local Stat
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ── src/chromeWindows.js — Chrome đang mở theo từng profile (v1.10.6) ─────
+const chromeWindows = require('../src/chromeWindows');
+
+test('windowProfileDir: đọc đúng profile từ thuộc tính cửa sổ (mẫu lấy từ máy thật 18/11/2026)', () => {
+  const exe = '"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"';
+  assert.strictEqual(chromeWindows.windowProfileDir('Chrome.UserData.Profile33', `${exe} --profile-directory="Profile 33"`), 'Profile 33');
+  assert.strictEqual(chromeWindows.windowProfileDir('Chrome.UserData.Profile1', `${exe} --profile-directory="Profile 1"`), 'Profile 1');
+  assert.strictEqual(chromeWindows.windowProfileDir('Chrome', `${exe} --profile-directory=Default`), 'Default');
+  // Cửa sổ app (PWA) không có lệnh mở lại → đọc theo AppUserModelID
+  assert.strictEqual(chromeWindows.windowProfileDir('Chrome._crx_eilemenohkicgjd.UserData.Profile1', ''), 'Profile 1');
+  assert.strictEqual(chromeWindows.windowProfileDir('Chrome._crx_eilemenohkicgjd', ''), 'Default');
+  // Không phải cửa sổ Chrome / thiếu dữ liệu
+  assert.strictEqual(chromeWindows.windowProfileDir('', ''), null);
+  assert.strictEqual(chromeWindows.windowProfileDir('Microsoft.WindowsTerminal', ''), null);
+  // "Profile 1" không bao giờ đọc nhầm thành "Profile 14" và ngược lại
+  assert.strictEqual(chromeWindows.windowProfileDir('Chrome.UserData.Profile14', ''), 'Profile 14');
+  assert.strictEqual(chromeWindows.windowProfileDir('', `${exe} --profile-directory="Profile 14"`), 'Profile 14');
+});
+
+// fs giả: mô phỏng cách Windows chặn khi Chrome khóa file
+function fakeFs(files) {
+  // files: { đường dẫn: 'free' | 'exclusive' (không mở được) | 'byterange' (mở được, đọc ra 0) | 'readerr' (đọc báo lỗi) }
+  const norm = p => p.replace(/\\/g, '/');
+  const fdMap = new Map(); let next = 10;
+  return {
+    statSync(p) { const k = norm(p); if (!(k in files)) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); return { size: k.endsWith('LOCK') ? 0 : 4096 }; },
+    openSync(p) { const k = norm(p); if (files[k] === 'exclusive') throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); const fd = next++; fdMap.set(fd, k); return fd; },
+    readSync(fd) { const k = fdMap.get(fd); if (files[k] === 'byterange') return 0; if (files[k] === 'readerr') throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' }); return k.endsWith('LOCK') ? 0 : 16; },
+    closeSync(fd) { fdMap.delete(fd); },
+    readdirSync() { return [...new Set(Object.keys(files).map(k => k.split('/')[1]))].concat(['System Profile', 'Crashpad']); },
+  };
+}
+
+test('getLoadedProfileDirs: nhận đúng từng profile đang mở (khóa độc quyền / khóa vùng byte / khóa LOCK)', () => {
+  const fsi = fakeFs({
+    'UD/Default/Network/Cookies': 'exclusive',             // như máy thật: KHOA-MO
+    'UD/Profile 1/Network/Cookies': 'byterange',           // kiểu Chrome 149 (CLAUDE.md 6.6)
+    'UD/Profile 33/Network/Cookies': 'free',
+    'UD/Profile 33/Local Storage/leveldb/LOCK': 'readerr', // chỉ LOCK bị khóa vẫn tính là đang mở
+    'UD/Profile 14/Network/Cookies': 'free',
+    'UD/Profile 14/Local Storage/leveldb/LOCK': 'free',
+    'UD/Profile 2/Cookies': 'free',                         // Chrome cũ: Cookies nằm ngoài Network/
+  });
+  const set = chromeWindows.getLoadedProfileDirs('UD', fsi);
+  assert.deepStrictEqual([...set].sort(), ['default', 'profile 1', 'profile 33']);
+  assert.strictEqual(chromeWindows.isFileLocked('UD/khong-co', fsi), null);
+  assert.strictEqual(chromeWindows.getLoadedProfileDirs(null, fsi).size, 0);
+});
+
+test('getLoadedProfileDirs: thư mục thật không bị khóa → không có profile nào đang mở', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'upm-lock-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'Profile 1', 'Network'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'Profile 1', 'Network', 'Cookies'), 'SQLite format 3\0xxxx');
+    assert.strictEqual(chromeWindows.getLoadedProfileDirs(dir).size, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('buildFocusScript: đúng profile, dùng chung mẫu với JS, giữ cửa sổ phóng to, chống chèn lệnh', () => {
+  const ps = chromeWindows.buildFocusScript('Profile 1');
+  assert.match(ps, /\$target='Profile 1'/);
+  assert.ok(ps.includes(`$relRe='${chromeWindows.RELAUNCH_DIR_RE}'`));
+  assert.ok(ps.includes(`$aumRe='${chromeWindows.AUMID_PROFILE_RE}'`));
+  assert.match(ps, /IsIconic\(\$h\)\)\{ \[UPMWin\]::ShowWindowAsync\(\$h,9\)/);   // chỉ khôi phục khi đang thu nhỏ
+  assert.match(chromeWindows.buildFocusScript("a'b"), /\$target='a''b'/);           // nháy đơn được nhân đôi
+  const enc = chromeWindows.encodePowerShell('Write-Output "Đinh"');
+  assert.strictEqual(Buffer.from(enc, 'base64').toString('utf16le'), 'Write-Output "Đinh"');
+});
+
+// ── renderer/nameRules.js — tên mặc định Chrome tiếng Việt ────
+test('isUnnamedProfile: "Cá nhân N" (Chrome tiếng Việt đặt mặc định) → chưa đặt tên', () => {
+  const { isUnnamedProfile } = require('../renderer/nameRules');
+  assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 10', chromeProfileName: 'Cá nhân 5', shortcutName: 'Cá nhân 5' }), true);
+  assert.strictEqual(isUnnamedProfile({ profileDirectory: 'Profile 10', chromeProfileName: 'Cá nhân 5', shortcutName: 'Cá nhân Sếp Tuyền' }), false);
+});
