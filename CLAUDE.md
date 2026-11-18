@@ -1,7 +1,7 @@
 # CHROME MANAGER BY UP MEDIA — Tài liệu kỹ thuật toàn diện
 
 > Tài liệu này dành cho các phiên Claude Code / dev mới để hiểu toàn bộ lịch sử, kiến trúc, vấn đề đã giải quyết và định hướng phát triển của phần mềm này.
-> Cập nhật lần cuối: **v1.9.4** (sửa bộ lọc "Chưa đặt tên" — Mục 16). Trước đó v1.9.0 (repo riêng + ghim profile + box so sánh quét + Basic/Pro + chống mở trùng bền trên Win 11 24H2) — Mục 15.
+> Cập nhật lần cuối: **v1.10.0** (định vị Chrome đang mở + đồng bộ tên lên Chrome — Mục 17). Trước đó v1.9.4 (sửa bộ lọc "Chưa đặt tên" — Mục 16), v1.9.0 (repo riêng + ghim profile + box so sánh quét + Basic/Pro + chống mở trùng bền trên Win 11 24H2) — Mục 15.
 > **Repo riêng (mới):** `github.com/upmedia0108/chrome-manager-upmedia` — tách khỏi monorepo `UP-Media` cũ. Nhánh phát hành vẫn là `main`.
 
 ---
@@ -685,3 +685,33 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 - [ ] Profile 14 "Đinh Thị Thanh" không còn trong "Chưa đặt tên" sau khi cập nhật + Quét lại
 - [ ] Profile còn tên "Profile N" / tên mặc định Chrome vẫn nằm trong "Chưa đặt tên"
 - [ ] Sửa tên trên thẻ → số đếm "Chưa đặt tên" (header + cột trái) đổi ngay
+
+---
+
+## 17. CẬP NHẬT v1.10.0 (định vị Chrome đang mở + đồng bộ tên lên Chrome)
+
+> Version hiện tại: **v1.10.0**. Nhu cầu: nhiều Chrome mở cùng lúc, nhìn 1 cửa sổ không biết là profile nào trong app → nối 2 chiều app ↔ cửa sổ Chrome.
+
+### 17.1 Hướng A — đồng bộ TÊN THÂN THIỆN → tên hiển thị Chrome
+- `src/chromeProfiles.js`:
+  - `setNameInLocalStateObj(ls, dir, name)` — hàm thuần (có unit test): set `info_cache[dir]` `{name, shortcut_name, is_using_default_name:false}`.
+  - `applyProfileName(userDataPath, dir, name)` — ghi Local State (nguồn Chrome hiển thị) + `Preferences → profile.name`/`using_default_name=false` (dự phòng). CHỈ an toàn khi profile đóng (Local State dùng chung).
+- `main.js`:
+  - `syncChromeNameFor(dir)` đọc `config.profiles[dir].shortcutName` rồi `applyProfileName`. Gọi trước khi mở trong `open-profile`, `open-profile-url`, `open-profiles-batch` (các handler này chỉ mở khi profile chưa chạy → an toàn).
+  - IPC `sync-all-profile-names`: taskkill Chrome → chờ 900ms → `scanProfiles` → `applyProfileName` cho mọi profile có `shortcutName`. Nút "Đồng bộ tên" trong Cài đặt (`#btn-sync-names`).
+- Kết quả: cửa sổ Chrome hiện tên thân thiện ở nút profile góc phải + taskbar/Alt-Tab (Chrome thêm tên profile vào tiêu đề khi ≥2 profile mở).
+- Lưu ý kỹ thuật: tên profile đã đăng nhập Google có thể hiện tên tài khoản là chính; tên local vẫn hiện ở taskbar/menu.
+
+### 17.2 Hướng B — Chrome đang mở + nhảy tới cửa sổ
+- `main.js` IPC `focus-profile-window`: PowerShell `Get-CimInstance Win32_Process` lọc `chrome.exe` theo `--profile-directory=` (khớp cả dạng có/không dấu ngoặc kép) → `SetForegroundWindow` MainWindowHandle.
+- `renderer.js`: `runningSet` + `refreshRunning()` (gọi `get-running-profiles`) cập nhật mỗi 4 giây (`setInterval`) + sau quét + sau khi mở profile. `updateRunningBadges()` bật/tắt `.running-badge` + class `.is-running` + số đếm bộ lọc. Bộ lọc sidebar `{type:'running'}` trong `applyFilter`. Thẻ + hàng có `data-profileDir` sẵn.
+- `.running-badge` là `<button>` (nằm trong danh sách loại trừ của card-clickable nên không mở Chrome khi bấm); bấm → `focusProfileWindow`.
+
+### IPC mới (preload.js): `syncAllProfileNames`, `focusProfileWindow` (và `getRunningProfiles` có sẵn).
+
+### Hạng mục cần nghiệm thu trên Windows thật (v1.10.0)
+- [ ] Mở 1 profile qua app → cửa sổ Chrome + taskbar hiện đúng tên thân thiện
+- [ ] Bấm "Đồng bộ tên" (Cài đặt) → đóng Chrome, mở lại thấy tên trên mọi cửa sổ
+- [ ] Nhãn "● Đang mở" hiện đúng profile đang chạy, tự tắt khi đóng Chrome (trong ~4s)
+- [ ] Bộ lọc "Đang mở" ở cột trái lọc đúng
+- [ ] Bấm nhãn "Đang mở" → cửa sổ Chrome đó nhảy lên trước màn hình

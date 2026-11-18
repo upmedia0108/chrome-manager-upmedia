@@ -9,10 +9,15 @@ let activeSidebarFilter = null; // { type, group?, sub?, loginType? }
 let viewMode = localStorage.getItem('upm_view_mode') || 'grid'; // 'grid' | 'list'
 let extCountCache = null; // { dir: số tiện ích } — tải khi vào chế độ hàng
 let perfMode = localStorage.getItem('upm_perf_mode') || 'pro'; // 'pro' | 'basic' — chế độ hiệu năng cho máy yếu
+let runningSet = new Set(); // các profile-directory (chữ thường) đang được Chrome mở
 let lastScan = { machineCount: 0, missing: [] }; // kết quả so sánh "Chrome máy vs đã quét"
 
 // ── Changelog — lịch sử phiên bản (mới nhất lên đầu) ──────
 const CHANGELOG = [
+  { v: '1.10.0', items: [
+    'Định vị Chrome đang mở: tên thân thiện Sếp đặt được ghi thẳng lên tên hiển thị của Chrome — nhìn cửa sổ (nút profile góc phải + taskbar / Alt-Tab) là biết ngay profile nào. Tự đồng bộ mỗi khi mở profile; có nút "Đồng bộ tên" trong Cài đặt để đồng bộ tất cả cùng lúc',
+    'Nhãn "● Đang mở" trên thẻ/hàng cho profile đang chạy Chrome (tự cập nhật mỗi 4 giây); bộ lọc "Đang mở" ở cột trái; bấm nhãn để đưa cửa sổ Chrome đó lên trước màn hình',
+  ] },
   { v: '1.9.4', items: [
     'Sửa lỗi bộ lọc "Chưa đặt tên" xếp nhầm profile đã có tên: profile có tên shortcut trùng tên lưu trong Chrome (vd "Đinh Thị Thanh") nay được tính là đã đặt tên. Chỉ còn xếp vào "Chưa đặt tên" khi ô tên trống, vẫn là "Profile N", hoặc là tên mặc định Chrome tự sinh (Person 1, Người dùng 2, Your Chrome…)',
     'Số đếm "Chưa đặt tên" cập nhật ngay sau khi sửa tên, không cần quét lại',
@@ -320,6 +325,18 @@ function renderSidebar() {
   const sl = document.getElementById('sidebar-login-filters');
   sl.innerHTML = '';
 
+  // Bộ lọc "Đang mở" (Hướng B)
+  const runningCnt = allProfiles.filter(isRunning).length;
+  const runningActive = activeSidebarFilter?.type==='running';
+  const runningEl = document.createElement('div');
+  runningEl.className = `sidebar-item${runningActive ? ' active' : ''}`;
+  runningEl.innerHTML = `
+    <span class="run-dot"></span>
+    <span>Đang mở</span><span class="sidebar-count" id="sidebar-running-count">${runningCnt}</span>
+  `;
+  runningEl.addEventListener('click', () => { activeSidebarFilter={type:'running'}; clearSearchInput(); renderSidebar(); applyFilter(); });
+  sl.appendChild(runningEl);
+
   const gmailCnt = countHasGmail();
   const gmailActive = activeSidebarFilter?.type==='login' && activeSidebarFilter?.loginType==='gmail';
   const gmailEl = document.createElement('div');
@@ -400,6 +417,8 @@ function applyFilter() {
     if (f) {
       if (f.type === 'nogroup') {
         matchSidebar = !(p.groups||[]).length;
+      } else if (f.type === 'running') {
+        matchSidebar = isRunning(p);
       } else if (f.type === 'group') {
         matchSidebar = (p.groups||[]).includes(f.group);
       } else if (f.type === 'sub') {
@@ -512,6 +531,7 @@ async function openProfileFromUI(dir, card) {
   const res = await window.app.openProfile(dir);
   if (res.success) showToast(res.alreadyOpen ? 'Chrome profile này đang mở sẵn — không mở thêm cửa sổ mới.' : 'Đang mở Chrome profile...', res.alreadyOpen ? 'warning' : 'info');
   else showToast(res.error, 'error');
+  setTimeout(refreshRunning, 1200); // cập nhật nhãn "đang mở"
   return res;
 }
 
@@ -824,6 +844,9 @@ async function buildCard(profile) {
       <button class="pin-toggle ${profile.pinned ? 'pinned' : ''}" data-dir="${ea(profile.profileDirectory)}" title="${profile.pinned ? 'Bỏ ghim' : 'Ghim lên đầu trang'}" aria-label="Ghim">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="${profile.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v5.76l2 3.24H7l2-3.24Z"/></svg>
       </button>
+      <button class="running-badge" data-dir="${ea(profile.profileDirectory)}" title="Chrome đang mở — bấm để đưa cửa sổ lên trước" style="display:none">
+        <span class="run-dot"></span>Đang mở
+      </button>
       <div class="card-status ${profile.hasShortcut ? 'has' : 'none'}">
         <span class="status-dot"></span>${profile.hasShortcut ? 'Có shortcut' : 'Chưa có'}
       </div>
@@ -976,6 +999,10 @@ async function buildCard(profile) {
     e.stopPropagation();
     togglePin(profile.profileDirectory);
   });
+
+  const rbEl = card.querySelector('.running-badge');
+  rbEl.addEventListener('click', e => { e.stopPropagation(); focusProfileWindow(profile.profileDirectory); });
+  if (isRunning(profile)) { card.classList.add('is-running'); rbEl.style.display = ''; }
 
   card.querySelector('.badge-gmail').addEventListener('click', () => openGmailModal(profile));
 
@@ -1642,6 +1669,43 @@ function renderScanCompare() {
   });
 }
 
+// ── Hướng B: theo dõi Chrome đang mở + nhảy tới cửa sổ ─────
+function isRunning(p) {
+  const dir = typeof p === 'string' ? p : p.profileDirectory;
+  return runningSet.has(String(dir).toLowerCase());
+}
+
+async function refreshRunning() {
+  try {
+    const arr = await window.app.getRunningProfiles();
+    runningSet = new Set((arr || []).map(s => String(s).toLowerCase()));
+  } catch { /* giữ nguyên set cũ */ }
+  updateRunningBadges();
+}
+
+function updateRunningBadges() {
+  document.querySelectorAll('.profile-card').forEach(card => {
+    const dir = card.dataset.profileDir;
+    const on = !!(dir && runningSet.has(String(dir).toLowerCase()));
+    card.classList.toggle('is-running', on);
+    const rb = card.querySelector('.running-badge');
+    if (rb) rb.style.display = on ? '' : 'none';
+  });
+  document.querySelectorAll('.profile-row').forEach(row => {
+    const dir = row.dataset.profileDir;
+    row.classList.toggle('is-running', !!(dir && runningSet.has(String(dir).toLowerCase())));
+  });
+  const c = document.getElementById('sidebar-running-count');
+  if (c) c.textContent = allProfiles.filter(isRunning).length;
+  // Nếu đang lọc "Đang mở" thì vẽ lại cho khớp realtime
+  if (activeSidebarFilter?.type === 'running') applyFilter();
+}
+
+async function focusProfileWindow(dir) {
+  const r = await window.app.focusProfileWindow(dir);
+  if (!r.success) showToast(r.notFound ? 'Không tìm thấy cửa sổ Chrome của profile này (có thể đã đóng)' : 'Không đưa được cửa sổ lên trước', 'warning');
+}
+
 // ── Scan ──────────────────────────────────────────────────
 async function scanProfiles() {
   showState('loading');
@@ -1654,6 +1718,7 @@ async function scanProfiles() {
     updateStats(allProfiles); renderSidebar();
     renderScanCompare();
     showState('grid'); applyFilter();
+    refreshRunning();
     const miss = lastScan.missing.length;
     if (miss) showToast(`Tìm thấy ${allProfiles.length} profile — Chrome máy có ${lastScan.machineCount}, THIẾU ${miss}. Xem thanh so sánh phía trên.`,'warning');
     else showToast(`Tìm thấy ${allProfiles.length} profile Chrome`,'success');
@@ -2327,6 +2392,16 @@ async function saveSettings() {
   else
     showToast('Đã lưu cài đặt','success');
 }
+document.getElementById('btn-sync-names').addEventListener('click', async () => {
+  if (!confirm('Đồng bộ tên sẽ ĐÓNG toàn bộ Chrome đang mở, rồi ghi tên thân thiện của Sếp vào tên hiển thị của Chrome.\nSau đó mở lại Chrome là nhìn cửa sổ biết ngay profile nào. Tiếp tục?')) return;
+  const btn = document.getElementById('btn-sync-names');
+  btn.disabled = true; btn.textContent = 'Đang đồng bộ...';
+  const r = await window.app.syncAllProfileNames();
+  btn.disabled = false; btn.textContent = 'Đồng bộ tên';
+  if (r.success) showToast(`Đã đồng bộ tên cho ${r.count} profile. Mở lại Chrome để thấy tên trên cửa sổ.`, 'success');
+  else showToast('Không đồng bộ được: ' + (r.error || ''), 'error');
+  refreshRunning();
+});
 document.getElementById('btn-check-update').addEventListener('click', async () => {
   const btn = document.getElementById('btn-check-update');
   const status = document.getElementById('update-status');
@@ -2581,6 +2656,9 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   renderSidebar();
   await scanProfiles();
+
+  // Theo dõi Chrome đang mở theo thời gian thực (Hướng B)
+  setInterval(refreshRunning, 4000);
 
   // Tự mở profile mặc định khi khởi động (nếu đã cấu hình)
   const defProfile = localStorage.getItem('upm_default_open_profile');

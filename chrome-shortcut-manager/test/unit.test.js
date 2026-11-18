@@ -95,6 +95,26 @@ test('computeMissingProfiles: không thiếu khi mọi profile đều quét đư
   assert.strictEqual(missing.length, 0);
 });
 
+const { setNameInLocalStateObj } = require('../src/chromeProfiles');
+
+test('setNameInLocalStateObj: ghi đúng tên hiển thị Chrome', () => {
+  const ls = { profile: { info_cache: { 'Profile 1': { name: 'Person 1', is_using_default_name: true } } } };
+  const ok = setNameInLocalStateObj(ls, 'Profile 1', '  T93 - FB Seeding  ');
+  assert.strictEqual(ok, true);
+  const e = ls.profile.info_cache['Profile 1'];
+  assert.strictEqual(e.name, 'T93 - FB Seeding');
+  assert.strictEqual(e.shortcut_name, 'T93 - FB Seeding');
+  assert.strictEqual(e.is_using_default_name, false);
+});
+
+test('setNameInLocalStateObj: tạo entry nếu chưa có, bỏ qua tên rỗng', () => {
+  const ls = { profile: {} };
+  assert.strictEqual(setNameInLocalStateObj(ls, 'Profile 5', 'Ads Sun'), true);
+  assert.strictEqual(ls.profile.info_cache['Profile 5'].name, 'Ads Sun');
+  assert.strictEqual(setNameInLocalStateObj(ls, 'Profile 6', '   '), false);
+  assert.strictEqual(ls.profile.info_cache['Profile 6'], undefined);
+});
+
 const { removeProfilesFromLocalState } = require('../src/chromeProfiles');
 
 test('removeProfilesFromLocalState: xóa đúng profile ma khỏi Local State', () => {

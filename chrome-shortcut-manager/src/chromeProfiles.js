@@ -206,6 +206,52 @@ function computeMissingProfiles(machineProfiles, foundDirs, userDataPath, exists
     });
 }
 
+// ── Hướng A: đồng bộ TÊN THÂN THIỆN trong app → TÊN HIỂN THỊ của Chrome ──
+// Để nhìn cửa sổ Chrome (nút profile góc phải + taskbar) là biết profile nào.
+// Hàm thuần (có test): set tên vào object Local State đã parse.
+function setNameInLocalStateObj(ls, dir, name) {
+  if (!ls || typeof ls !== 'object') return false;
+  const nm = (name || '').trim();
+  if (!nm) return false;
+  ls.profile = ls.profile || {};
+  ls.profile.info_cache = ls.profile.info_cache || {};
+  const e = ls.profile.info_cache[dir] = ls.profile.info_cache[dir] || {};
+  e.name = nm;
+  e.shortcut_name = nm;
+  e.is_using_default_name = false;
+  return true;
+}
+
+// Ghi tên lên Local State (nguồn Chrome dùng để hiển thị) + Preferences của profile (dự phòng).
+// CHỈ nên gọi khi profile đó đang ĐÓNG (Local State dùng chung — Chrome đang chạy có thể ghi đè).
+function applyProfileName(userDataPath, dir, name) {
+  const nm = (name || '').trim();
+  if (!userDataPath || !dir || !nm) return false;
+  let ok = false;
+  try {
+    const lsPath = path.join(userDataPath, 'Local State');
+    if (fs.existsSync(lsPath)) {
+      const ls = JSON.parse(fs.readFileSync(lsPath, 'utf8'));
+      if (setNameInLocalStateObj(ls, dir, nm)) {
+        fs.writeFileSync(lsPath, JSON.stringify(ls), 'utf8');
+        ok = true;
+      }
+    }
+  } catch { /* ignore */ }
+  try {
+    const prefPath = path.join(userDataPath, dir, 'Preferences');
+    if (fs.existsSync(prefPath)) {
+      const prefs = JSON.parse(fs.readFileSync(prefPath, 'utf8'));
+      prefs.profile = prefs.profile || {};
+      prefs.profile.name = nm;
+      prefs.profile.using_default_name = false;
+      fs.writeFileSync(prefPath, JSON.stringify(prefs), 'utf8');
+      ok = true;
+    }
+  } catch { /* ignore */ }
+  return ok;
+}
+
 module.exports = {
   scanProfiles,
   findUserDataPath,
@@ -214,4 +260,6 @@ module.exports = {
   getInfoCacheProfiles,
   computeMissingProfiles,
   removeProfilesFromLocalState,
+  setNameInLocalStateObj,
+  applyProfileName,
 };

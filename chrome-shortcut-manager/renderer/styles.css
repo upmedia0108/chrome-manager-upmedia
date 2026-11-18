@@ -524,6 +524,16 @@ textarea.np-input{min-height:64px;line-height:1.5}
 .group-dot.gc-custom{background:#d946ef}
 
 /* ── Ghim profile (mục 1) ─────────────────────────────────── */
+/* ── Nhãn "Đang mở" + nhảy tới cửa sổ (Hướng B) ──────────── */
+.running-badge{flex-shrink:0;display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:999px;border:1px solid #bbf7d0;background:var(--upm-green-pale);color:var(--upm-green);font-size:10.5px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
+.running-badge:hover{background:var(--upm-green);color:#fff;border-color:var(--upm-green)}
+.run-dot{width:7px;height:7px;border-radius:50%;background:#16a34a;box-shadow:0 0 0 3px rgba(22,163,74,.2);flex-shrink:0;animation:runpulse 1.6s ease-in-out infinite}
+.running-badge:hover .run-dot{background:#fff;box-shadow:0 0 0 3px rgba(255,255,255,.3)}
+@keyframes runpulse{0%,100%{opacity:1}50%{opacity:.35}}
+.profile-card.is-running{border-top-color:#16a34a;box-shadow:0 0 0 1px #86efac,var(--shadow)}
+.profile-row.is-running{border-left-color:#16a34a;background:#f0fdf4}
+.sidebar-item .run-dot{margin-right:1px}
+
 .pin-toggle{flex-shrink:0;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--muted);cursor:pointer;transition:all .15s;padding:0}
 .pin-toggle:hover{border-color:var(--upm-green);color:var(--upm-green);background:var(--upm-green-pale)}
 .pin-toggle.pinned{background:var(--upm-yellow);border-color:var(--upm-yellow);color:var(--upm-green)}

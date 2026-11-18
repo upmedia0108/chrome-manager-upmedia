@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('app', {
   openProfileUrl: (dir, url) => ipcRenderer.invoke('open-profile-url', dir, url),
   openProfilesBatch: (dirs) => ipcRenderer.invoke('open-profiles-batch', dirs),
   getRunningProfiles: () => ipcRenderer.invoke('get-running-profiles'),
+  syncAllProfileNames: () => ipcRenderer.invoke('sync-all-profile-names'),
+  focusProfileWindow: (dir) => ipcRenderer.invoke('focus-profile-window', dir),
   getSystemInfo: () => ipcRenderer.invoke('get-system-info'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   cleanGhostProfiles: () => ipcRenderer.invoke('clean-ghost-profiles'),

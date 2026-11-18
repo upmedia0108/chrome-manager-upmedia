@@ -384,6 +384,7 @@ ipcMain.handle('open-profile', async (_, profileDirectory, opts) => {
     }
     const config = configStore.getConfig();
     const userDataPath = config.settings?.chromeUserDataPath || null;
+    syncChromeNameFor(profileDirectory);   // Hướng A: đồng bộ tên trước khi mở
     shortcuts.openProfile(profileDirectory, userDataPath);
     return { success: true };
   } catch (err) {
@@ -391,15 +392,79 @@ ipcMain.handle('open-profile', async (_, profileDirectory, opts) => {
   }
 });
 
+// Hướng A: đồng bộ tên thân thiện (shortcutName) lên tên hiển thị của Chrome trước khi mở profile.
+// Chỉ chạy khi profile đang đóng (các handler mở đều kiểm tra trước đó), nên an toàn.
+function syncChromeNameFor(dir) {
+  try {
+    const config = configStore.getConfig();
+    const udp = chromeProfiles.findUserDataPath(config.settings?.chromeUserDataPath || null);
+    const name = config.profiles?.[dir]?.shortcutName;
+    if (udp && name) chromeProfiles.applyProfileName(udp, dir, name);
+  } catch { /* best-effort */ }
+}
+
 // Trả về danh sách profile-directory đang được Chrome mở (chữ thường)
 ipcMain.handle('get-running-profiles', async () => {
   return Array.from(await getRunningProfileDirs());
+});
+
+// Hướng A (thủ công): đồng bộ tên tất cả profile lên Chrome — đóng Chrome trước cho chắc
+ipcMain.handle('sync-all-profile-names', async () => {
+  const config = configStore.getConfig();
+  const customPath = config.settings?.chromeUserDataPath || null;
+  await new Promise(resolve => { exec('taskkill /F /IM chrome.exe /T', () => resolve()); });
+  await new Promise(r => setTimeout(r, 900));
+  let userDataPath, profiles;
+  try { ({ userDataPath, profiles } = chromeProfiles.scanProfiles(customPath)); }
+  catch (err) { return { success: false, error: err.message }; }
+  let count = 0;
+  for (const p of (profiles || [])) {
+    const name = config.profiles?.[p.profileDirectory]?.shortcutName;
+    if (name && chromeProfiles.applyProfileName(userDataPath, p.profileDirectory, name)) count++;
+  }
+  return { success: true, count };
+});
+
+// Hướng B: đưa cửa sổ Chrome của 1 profile lên trước màn hình
+ipcMain.handle('focus-profile-window', async (_, profileDirectory) => {
+  const dir = String(profileDirectory || '');
+  if (!dir) return { success: false };
+  const target = dir.replace(/'/g, "''");
+  const ps = [
+    "$ErrorActionPreference='SilentlyContinue'",
+    'Add-Type @"',
+    'using System;using System.Runtime.InteropServices;',
+    'public class UPWin{',
+    ' [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);',
+    ' [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h,int n);',
+    '}',
+    '"@',
+    `$t='${target}'`,
+    '$found=$false',
+    'Get-CimInstance Win32_Process -Filter "Name=\'chrome.exe\'" | ForEach-Object {',
+    " if($_.CommandLine -and ($_.CommandLine -match ([regex]::Escape('--profile-directory=')+'\"?'+[regex]::Escape($t)))){",
+    '  $p=Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue',
+    '  if($p -and $p.MainWindowHandle -ne 0){',
+    '   [UPWin]::ShowWindowAsync($p.MainWindowHandle,9) | Out-Null',
+    '   [UPWin]::SetForegroundWindow($p.MainWindowHandle) | Out-Null',
+    '   $found=$true } } }',
+    "if($found){Write-Output 'OK'}else{Write-Output 'NONE'}",
+  ].join("\n");
+  return await new Promise(resolve => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps],
+      { windowsHide: true, timeout: 8000 },
+      (err, stdout) => {
+        if (!err && /OK/.test(stdout)) resolve({ success: true });
+        else resolve({ success: false, notFound: /NONE/.test(stdout || '') });
+      });
+  });
 });
 
 ipcMain.handle('open-profile-url', async (_, profileDirectory, url) => {
   try {
     const config = configStore.getConfig();
     const userDataPath = config.settings?.chromeUserDataPath || null;
+    syncChromeNameFor(profileDirectory);
     shortcuts.openProfileWithUrl(profileDirectory, url, userDataPath);
     return { success: true };
   } catch (err) {
@@ -414,7 +479,7 @@ ipcMain.handle('open-profiles-batch', async (_, profileDirectories) => {
   let ok = 0, fail = 0, skipped = 0;
   for (const dir of profileDirectories) {
     if (running.has(String(dir).toLowerCase())) { skipped++; continue; }
-    try { shortcuts.openProfile(dir, userDataPath); ok++; await new Promise(r => setTimeout(r, 350)); }
+    try { syncChromeNameFor(dir); shortcuts.openProfile(dir, userDataPath); ok++; await new Promise(r => setTimeout(r, 350)); }
     catch { fail++; }
   }
   return { success: true, ok, fail, skipped };

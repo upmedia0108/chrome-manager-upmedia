@@ -4,6 +4,12 @@ Tất cả thay đổi theo từng phiên bản.
 
 ---
 
+## v1.10.0
+- **Định vị Chrome đang mở + khớp tên hai chiều (Hướng A + B).**
+  - **Hướng A — đồng bộ tên lên Chrome:** `chromeProfiles.applyProfileName(userDataPath, dir, name)` ghi tên thân thiện (`shortcutName`) vào `Local State → info_cache[dir]` (`name`, `shortcut_name`, `is_using_default_name=false`) + `Preferences → profile.name`. Nhìn cửa sổ Chrome (nút profile góc phải + taskbar / Alt-Tab) là biết profile nào. Tự đồng bộ trước mỗi lần mở (`syncChromeNameFor` trong `open-profile`, `open-profile-url`, `open-profiles-batch`). Nút "Đồng bộ tên" trong Cài đặt → IPC `sync-all-profile-names` (đóng Chrome trước rồi ghi tất cả). Hàm thuần `setNameInLocalStateObj` có unit test.
+  - **Hướng B — Chrome đang mở:** nhãn "● Đang mở" trên thẻ/hàng (tự cập nhật mỗi 4 giây qua `refreshRunning` + `get-running-profiles`), bộ lọc sidebar "Đang mở" (`activeSidebarFilter.type==='running'`), bấm nhãn → IPC `focus-profile-window` (PowerShell `SetForegroundWindow` theo `--profile-directory`) đưa cửa sổ lên trước.
+- IPC mới: `sync-all-profile-names`, `focus-profile-window`. Preload: `syncAllProfileNames`, `focusProfileWindow`.
+
 ## v1.9.4
 - **Sửa lỗi bộ lọc "Chưa đặt tên" xếp nhầm profile đã có tên.** Nguyên nhân: `isUnnamed()` cũ coi "tên shortcut = tên Chrome đang lưu (`chromeProfileName`)" là chưa đặt (vì `main.js` tự điền tên Chrome vào ô tên khi chưa đặt) → profile mà tên Chrome đã là tên thật (vd Profile 14 "Đinh Thị Thanh") bị xếp nhầm. Quy tắc mới tách ra `renderer/nameRules.js` (`isUnnamedProfile`, dùng chung cho sidebar, thống kê header, chấm vàng dạng hàng + unit test): chỉ "chưa đặt" khi tên trống / trùng `Profile N` / khớp mẫu tên mặc định Chrome (Person N, Người dùng N, Your Chrome…) / hoặc trùng tên Chrome **và** Chrome đánh dấu `is_using_default_name` (trừ khi trùng tên tài khoản Google).
 - `chromeProfiles.scanProfiles()` trả thêm `chromeUsingDefaultName` (Local State `info_cache.is_using_default_name`, dự phòng Preferences `profile.using_default_name`) và `chromeGaiaNames`.
