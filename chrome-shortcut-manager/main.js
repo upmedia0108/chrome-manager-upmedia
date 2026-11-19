@@ -1,8 +1,8 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, Menu, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { exec, execFile } = require('child_process');
+const { exec, execFile, execFileSync } = require('child_process');
 const crypto = require('crypto');
 const XLSX = require('xlsx');
 const { autoUpdater } = require('electron-updater');
@@ -30,6 +30,86 @@ const history = require('./src/history');
 const accounts = require('./src/accounts');
 const social = require('./src/socialAccounts');
 const chromeWindows = require('./src/chromeWindows');
+const locks = require('./src/locks');
+const { createLockService } = require('./src/lockService');
+
+// ── Khóa Chrome bằng mã (v1.11) — xem src/locks.js, src/lockService.js, CLAUDE.md Mục 20 ──
+// Dữ liệu khóa: <userData>/locks.json (chính) + %LOCALAPPDATA%\UP Media\Chrome Manager\locks-backup.json (dự phòng)
+// + dấu niêm phong HKCU\Software\UP Media\Chrome Manager → LockSeal; khóa niêm phong <userData>/lock.key (DPAPI qua safeStorage).
+const LOCK_REG_KEY = 'HKCU\\Software\\UP Media\\Chrome Manager';
+let lockSvc = null;
+function lockSealStore() {
+  return {
+    read() {
+      if (process.platform !== 'win32') return null;
+      try {
+        const out = execFileSync('reg', ['query', LOCK_REG_KEY, '/v', 'LockSeal'], { windowsHide: true, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+        const m = /LockSeal\s+REG_SZ\s+(\S+)/.exec(out || '');
+        return m ? m[1] : null;
+      } catch { return null; }
+    },
+    write(v) {
+      if (process.platform !== 'win32') return;
+      execFileSync('reg', ['add', LOCK_REG_KEY, '/v', 'LockSeal', '/t', 'REG_SZ', '/d', v, '/f'], { windowsHide: true, stdio: 'ignore' });
+    },
+  };
+}
+// Khóa bí mật + mỏ neo (bộ đếm, băm mã CEO / mã khẩn cấp) — chuỗi JSON, mã hóa Windows DPAPI qua safeStorage
+function lockKeyStore(file) {
+  return {
+    load() {
+      let buf;
+      try { buf = fs.readFileSync(file); } catch { return null; }
+      try { return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(buf) : buf.toString('utf8'); }
+      catch { return null; }
+    },
+    save(str) {
+      const text = String(str);
+      const tmp = file + '.tmp';
+      fs.writeFileSync(tmp, safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(text) : Buffer.from(text, 'utf8'));
+      fs.renameSync(tmp, file);
+    },
+  };
+}
+// Tên Chrome (tên đặt trong app → tên trong Chrome → thư mục) cho tin nhắn cấp mã + xóa shortcut
+function chromeDisplayNames(dir) {
+  const saved = (configStore.getConfig().profiles || {})[dir] || {};
+  const names = [saved.shortcutName];
+  try {
+    const udp = chromeProfiles.findUserDataPath(configStore.getConfig().settings?.chromeUserDataPath || null);
+    const ls = JSON.parse(fs.readFileSync(path.join(udp, 'Local State'), 'utf8'));
+    names.push(ls?.profile?.info_cache?.[dir]?.name);
+  } catch { /* bỏ qua */ }
+  names.push(dir);
+  return [...new Set(names.filter(Boolean))];
+}
+function initLockService() {
+  const userData = app.getPath('userData');
+  const store = locks.createLockStore({
+    primaryPath: path.join(userData, 'locks.json'),
+    mirrorPath: path.join(process.env.LOCALAPPDATA || app.getPath('appData'), 'UP Media', 'Chrome Manager', 'locks-backup.json'),
+    keyStore: lockKeyStore(path.join(userData, 'lock.key')),
+    sealStore: lockSealStore(),
+  });
+  lockSvc = createLockService({
+    store, configStore,
+    getUserDataPath: () => currentUserDataPath(),
+    getLoadedDirs: udp => chromeWindows.getLoadedProfileDirs(udp),
+    listWindows: () => chromeWindows.listChromeWindows(),
+    deleteShortcutsForDir: dir => { for (const n of chromeDisplayNames(dir)) { try { shortcuts.deleteShortcut(n); } catch { /* bỏ qua */ } } },
+    displayName: dir => chromeDisplayNames(dir)[0],
+    onChange: () => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('locks-changed'); },
+  });
+  try { lockSvc.reload(); } catch (e) { console.error('[locks] lỗi đọc dữ liệu khóa', e); }
+}
+// Chrome đang khóa và chưa mở khóa → kết quả trả về cho giao diện
+function lockedBlock(dir) {
+  if (!lockSvc || !lockSvc.isBlocked(dir)) return null;
+  return { success: false, locked: true, lock: lockSvc.lockOf(dir), error: 'Chrome này đang khóa — nhập mã để mở.' };
+}
+const dirOfPath = p => path.basename(String(p || ''));
+// Chrome đang khóa theo tên thư mục HOẶC theo đường dẫn (handler nhận cả hai thì kiểm cả hai)
+function blockedAny(dir, profilePath) { return lockedBlock(dir) || (profilePath ? lockedBlock(dirOfPath(profilePath)) : null); }
 
 let mainWindow;
 
@@ -106,6 +186,9 @@ function createWindow() {
     backgroundColor: '#f8fafc',
     show: false
   });
+  // Cửa sổ chỉ hiện trang của app: chặn chuyển trang (kéo thả file .html…) và mở cửa sổ mới — trang lạ không được dùng window.app
+  mainWindow.webContents.on('will-navigate', e => e.preventDefault());
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.once('ready-to-show', () => {
     mainWindow.maximize();   // Mở toàn màn hình theo mặc định
@@ -118,6 +201,7 @@ app.whenReady().then(async () => {
 
   if (!(await ensureElevated())) return;   // đã relaunch bản Administrator → thoát bản thường
 
+  initLockService();
   setupAppMenu();
   createWindow();
   setupAutoUpdate();
@@ -213,7 +297,7 @@ ipcMain.handle('scan-profiles', async () => {
         cacheSize: null,
         googleAccounts: accounts.getGoogleAccounts(p.profilePath),
       };
-    }),
+    }).map(p => (lockSvc ? lockSvc.redactProfile(p) : p)),   // Chrome đang khóa: ẩn ghi chú, email
     userDataPath,
     machineCount,
     machineProfiles,
@@ -234,6 +318,18 @@ ipcMain.handle('get-system-info', async () => {
 });
 
 ipcMain.handle('save-profile-config', async (_, profileDirectory, data) => {
+  if (lockSvc && data && typeof data === 'object') {
+    // Chrome đang khóa (chưa mở khóa): chỉ cho ghim / bỏ ghim
+    if (lockSvc.isBlocked(profileDirectory) && Object.keys(data).some(k => k !== 'pinned')) return lockedBlock(profileDirectory);
+    // Thêm / gỡ nhóm ĐANG KHÓA phải qua lock-add-member / lock-remove-member (cần mã nhóm)
+    if (Array.isArray(data.groups)) {
+      const saved = (configStore.getConfig().profiles || {})[profileDirectory] || {};
+      const before = new Set(saved.groups || []), after = new Set(data.groups);
+      const lockedGroups = Object.keys(lockSvc.state().groupLocks || {});
+      const touched = lockedGroups.filter(g => before.has(g) !== after.has(g));
+      if (touched.length) return { success: false, code: 'LOCKED_GROUP', group: touched[0], error: `Nhóm "${touched[0]}" đang khóa — cần mã nhóm để thêm hoặc gỡ Chrome.` };
+    }
+  }
   return configStore.saveProfileConfig(profileDirectory, data);
 });
 
@@ -268,6 +364,9 @@ async function isChromeRunningForProfile(profileDirectory) {
 }
 
 ipcMain.handle('delete-chrome-profile', async (_, profilePath, profileDirectory, displayName) => {
+  if (lockSvc && (lockSvc.isLocked(profileDirectory) || lockSvc.isLocked(dirOfPath(profilePath)))) {
+    return { success: false, locked: true, error: 'Chrome này đang khóa — cần mã CEO gỡ khóa trước khi xóa.' };
+  }
   const running = await isChromeRunningForProfile(profileDirectory);
   if (running) {
     await dialog.showMessageBox(mainWindow, {
@@ -324,6 +423,7 @@ ipcMain.handle('clean-ghost-profiles', async () => {
 });
 
 ipcMain.handle('kill-all-chrome', async () => {
+  if (lockSvc) lockSvc.relockAll();   // đóng hết Chrome → Chrome đang mở khóa khóa lại ngay
   return new Promise(resolve => {
     exec('taskkill /F /IM chrome.exe /T', (err, stdout, stderr) => {
       const output = (stdout + stderr).toLowerCase();
@@ -334,6 +434,7 @@ ipcMain.handle('kill-all-chrome', async () => {
 });
 
 ipcMain.handle('create-shortcut', async (_, profileDirectory, shortcutName) => {
+  if (lockSvc && lockSvc.isLocked(profileDirectory)) return { success: false, locked: true, error: 'Chrome đang khóa — không tạo shortcut ngoài Desktop (để không mở vòng qua app).' };
   try {
     const lnkPath = shortcuts.createShortcut({ profileDirectory, shortcutName });
     return { success: true, path: lnkPath };
@@ -353,6 +454,8 @@ ipcMain.handle('delete-shortcut', async (_, shortcutName) => {
 });
 
 ipcMain.handle('open-profile', async (_, profileDirectory, opts) => {
+  const blocked = lockedBlock(profileDirectory);
+  if (blocked) return blocked;
   try {
     // Chrome đã mở sẵn profile này → đưa cửa sổ của nó lên trước thay vì mở chồng (trừ khi ép mở).
     // Không thấy cửa sổ nào (profile còn chạy ngầm) → mở cửa sổ mới như bình thường.
@@ -408,10 +511,14 @@ ipcMain.handle('sync-all-profile-names', async () => {
 ipcMain.handle('focus-profile-window', async (_, profileDirectory) => {
   const dir = String(profileDirectory || '');
   if (!dir) return { success: false };
+  const blocked = lockedBlock(dir);
+  if (blocked) return blocked;
   return chromeWindows.focusProfileWindow(dir);
 });
 
 ipcMain.handle('open-profile-url', async (_, profileDirectory, url) => {
+  const blocked = lockedBlock(profileDirectory);
+  if (blocked) return blocked;
   try {
     const config = configStore.getConfig();
     const userDataPath = config.settings?.chromeUserDataPath || null;
@@ -427,13 +534,14 @@ ipcMain.handle('open-profiles-batch', async (_, profileDirectories) => {
   const config = configStore.getConfig();
   const userDataPath = config.settings?.chromeUserDataPath || null;
   const running = await getRunningProfileDirs();   // bỏ qua profile đã mở sẵn
-  let ok = 0, fail = 0, skipped = 0;
+  let ok = 0, fail = 0, skipped = 0, lockedSkipped = 0;
   for (const dir of profileDirectories) {
+    if (lockSvc && lockSvc.isBlocked(dir)) { lockedSkipped++; continue; }   // Chrome đang khóa chưa nhập mã
     if (running.has(String(dir).toLowerCase())) { skipped++; continue; }
     try { syncChromeNameFor(dir); shortcuts.openProfile(dir, userDataPath); ok++; await new Promise(r => setTimeout(r, 350)); }
     catch { fail++; }
   }
-  return { success: true, ok, fail, skipped };
+  return { success: true, ok, fail, skipped, lockedSkipped };
 });
 
 ipcMain.handle('check-shortcut-exists', async (_, name) => shortcuts.shortcutExists(name));
@@ -465,7 +573,19 @@ ipcMain.handle('open-external', async (_, url) => {
 ipcMain.handle('get-settings', async () => configStore.getConfig().settings || {});
 
 ipcMain.handle('get-groups', async () => configStore.getGroups());
-ipcMain.handle('save-groups', async (_, groups) => configStore.saveGroups(groups));
+ipcMain.handle('save-groups', async (_, groups, code) => {
+  // Nhóm bị xóa khỏi danh sách: nhóm đang khóa cần mã CEO (cảnh báo của nhóm đi theo)
+  if (lockSvc) {
+    const removed = (configStore.getGroups() || []).filter(g => !(groups || []).includes(g));
+    const r = lockSvc.deleteGroups(code, removed);
+    if (!r.success) {
+      const st = lockSvc.state();
+      const guarded = removed.filter(g => st.groupLocks[g] || (st.warnings.groups[g] || {}).code);
+      return { ...r, needCode: true, needCeo: guarded.some(g => st.groupLocks[g]), groups: guarded };
+    }
+  }
+  return configStore.saveGroups(groups);
+});
 ipcMain.handle('get-group-subs', async () => configStore.getGroupSubs());
 ipcMain.handle('save-group-subs', async (_, groupSubs) => configStore.saveGroupSubs(groupSubs));
 
@@ -476,12 +596,16 @@ ipcMain.handle('create-chrome-profile', async (_, friendlyName, groups, subGroup
     const newDir = chromeProfiles.getNextProfileDirectory(userDataPath);
     const saveData = {};
     if (friendlyName && friendlyName.trim()) saveData.shortcutName = friendlyName.trim();
+    // Nhóm đang khóa không gán thẳng được (cần mã nhóm) → bỏ ra, báo lại cho giao diện
+    const lockedNow = new Set(lockSvc ? Object.keys(lockSvc.state().groupLocks || {}) : []);
+    const strippedLockedGroups = (groups || []).filter(g => lockedNow.has(g));
+    groups = (groups || []).filter(g => !lockedNow.has(g));
     if (Array.isArray(groups) && groups.length) saveData.groups = groups;
     if (subGroups && Object.keys(subGroups).length) saveData.subGroups = subGroups;
     if (notes && notes.trim()) saveData.notes = notes.trim();
     if (Object.keys(saveData).length) configStore.saveProfileConfig(newDir, saveData);
     shortcuts.openProfile(newDir, userDataPath);
-    return { success: true, profileDirectory: newDir };
+    return { success: true, profileDirectory: newDir, strippedLockedGroups };
   } catch (err) {
     return { success: false, error: err.message === 'CHROME_NOT_FOUND' ? 'Không tìm thấy Google Chrome.' : err.message };
   }
@@ -683,7 +807,7 @@ ipcMain.handle('export-data', async () => {
       [COL.name]: saved.shortcutName || p.chromeProfileName || p.profileDirectory,
       [COL.groups]: (saved.groups || []).join(', '),
       [COL.subs]: encodeSubGroups(saved.subGroups),
-      [COL.notes]: saved.notes || '',
+      [COL.notes]: lockSvc && lockSvc.isLocked(p.profileDirectory) ? '(Chrome đang khóa — ghi chú không xuất ra file)' : (saved.notes || ''),
     };
   });
 
@@ -765,8 +889,10 @@ ipcMain.handle('import-data', async () => {
   let created = 0, failed = 0;
   for (const row of rows) {
     const name = String(pick(row, COL.name) || '').trim();
-    const groups = splitList(pick(row, COL.groups));
+    const lockedNow = new Set(lockSvc ? Object.keys(lockSvc.state().groupLocks || {}) : []);
+    const groups = splitList(pick(row, COL.groups)).filter(g => !lockedNow.has(g));   // nhóm đang khóa: phải thêm bằng mã nhóm
     const subGroups = decodeSubGroups(pick(row, COL.subs));
+    for (const g of lockedNow) delete subGroups[g];
     const notes = String(pick(row, COL.notes) || '').trim();
     if (!name && !groups.length && !notes) continue;   // bỏ dòng trống
 
@@ -895,6 +1021,7 @@ ipcMain.handle('set-cookie-export-enabled', async (_, enabled) => {
 });
 
 ipcMain.handle('export-facebook-cookies', async (_, profileDirectory) => {
+  { const blocked = lockedBlock(profileDirectory); if (blocked) return blocked; }
   const settings = configStore.getConfig().settings || {};
   if (!settings.cookieExportEnabled) return { success: false, error: 'Chưa bật xuất cookie trong Cài đặt.' };
   const port = extHost.getPort();
@@ -940,14 +1067,17 @@ ipcMain.handle('set-auto-elevate', async (_, enabled) => {
 });
 
 ipcMain.handle('get-profile-history', async (_, profilePath) => {
+  if (lockedBlock(dirOfPath(profilePath))) return [];
   return history.getProfileHistory(profilePath, 25);
 });
 
 ipcMain.handle('get-google-accounts', async (_, profilePath) => {
+  if (lockedBlock(dirOfPath(profilePath))) return [];
   return accounts.getGoogleAccounts(profilePath);
 });
 
 ipcMain.handle('get-social-status', async (_, profilePath, sites) => {
+  if (lockedBlock(dirOfPath(profilePath))) return {};
   return social.getSocialStatus(profilePath, sites);
 });
 
@@ -956,6 +1086,7 @@ ipcMain.handle('get-social-sites', async () => {
 });
 
 ipcMain.handle('get-cookies-for-domain', async (_, profilePath, domain) => {
+  if (lockedBlock(dirOfPath(profilePath))) return [];
   return social.getCookiesForDomain(profilePath, domain);
 });
 
@@ -964,17 +1095,23 @@ ipcMain.handle('save-social-sites', async (_, sites) => {
   return true;
 });
 
-ipcMain.handle('rename-group-in-profiles', async (_, oldName, newName) => {
+ipcMain.handle('rename-group-in-profiles', async (_, oldName, newName, code) => {
+  if (lockSvc) {
+    const r = lockSvc.renameGroup(code, oldName, newName);   // nhóm khóa cần mã nhóm / mã CEO
+    if (!r.success) return r;
+  }
   return configStore.renameGroupInProfiles(oldName, newName);
 });
 
 ipcMain.handle('debug-social-status', async (_, profilePath, sites) => {
+  if (lockedBlock(dirOfPath(profilePath))) return { error: 'Chrome đang khóa' };
   return social.debugSocialStatus(profilePath, sites);
 });
 
 // Kill all Chrome, open a specific profile fresh with debug port, wait for port to open.
 // Used by the "Mở Chrome Debug" button in social diagnostic panel.
 ipcMain.handle('kill-and-open-debug', async (_, profileDirectory) => {
+  { const blocked = lockedBlock(profileDirectory); if (blocked) return blocked; }
   const { isPortOpen } = require('./src/chromeCdp');
   const config = configStore.getConfig();
   const userDataPath = config.settings?.chromeUserDataPath || null;
@@ -1014,6 +1151,7 @@ ipcMain.handle('kill-and-open-debug', async (_, profileDirectory) => {
 // Kill Chrome (all processes), read social status from unlocked file, reopen Chrome.
 // Chrome releases the file lock immediately when the process exits.
 ipcMain.handle('social-status-kill-reopen', async (_, profileDirectory, profilePath, sites) => {
+  if (blockedAny(profileDirectory, profilePath)) return {};
   const config = configStore.getConfig();
   const userDataPath = config.settings?.chromeUserDataPath || null;
 
@@ -1032,9 +1170,29 @@ ipcMain.handle('social-status-kill-reopen', async (_, profileDirectory, profileP
   return status;
 });
 
+// ── IPC khóa Chrome (v1.11) ──────────────────────────────
+ipcMain.handle('lock-status', async () => lockSvc.status());
+ipcMain.handle('lock-setup', async (_, ceo) => lockSvc.setup(ceo));
+ipcMain.handle('lock-change-ceo', async (_, oldCode, newCode) => lockSvc.changeCeo(oldCode, newCode));
+ipcMain.handle('lock-events', async (_, ceo) => lockSvc.events(ceo));
+ipcMain.handle('lock-recover', async (_, code) => lockSvc.recover(code));
+ipcMain.handle('lock-reset', async (_, newCeo) => lockSvc.reset(newCeo));
+ipcMain.handle('lock-chrome', async (_, ceo, dir, pin) => lockSvc.lockChrome(ceo, dir, pin));
+ipcMain.handle('lock-group', async (_, ceo, group, pin) => lockSvc.lockGroup(ceo, group, pin));
+ipcMain.handle('lock-remove', async (_, ceo, target) => lockSvc.removeLock(ceo, target));
+ipcMain.handle('lock-reset-pin', async (_, ceo, target, pin) => lockSvc.resetPin(ceo, target, pin));
+ipcMain.handle('lock-add-member', async (_, code, group, dir) => lockSvc.addMember(code, group, dir));
+ipcMain.handle('lock-remove-member', async (_, code, group, dir) => lockSvc.removeMember(code, group, dir));
+ipcMain.handle('lock-unlock', async (_, dir, code) => lockSvc.unlock(dir, code));
+ipcMain.handle('lock-unlock-many', async (_, dirs, code) => lockSvc.unlockMany(dirs, code));
+ipcMain.handle('lock-relock', async (_, dir) => lockSvc.relock(dir));
+ipcMain.handle('warning-set', async (_, target, code, opts) => lockSvc.setWarning(target, code, opts));
+ipcMain.handle('warnings-for', async (_, dirs) => lockSvc.warningsFor(dirs));
+
 ipcMain.handle('get-social-status-batch', async (_, profilePaths, sites) => {
   const results = {};
   for (const { dir, profilePath } of profilePaths) {
+    if (blockedAny(dir, profilePath)) continue;   // Chrome đang khóa: không đọc trạng thái đăng nhập
     results[dir] = await social.getSocialStatus(profilePath, sites);
   }
   return results;

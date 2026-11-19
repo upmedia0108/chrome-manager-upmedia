@@ -35,8 +35,37 @@ function makeFixture() {
   }), 'utf8');
   return {
     root, userData: ud, configPath,
-    env: { UPM_CONFIG_PATH: configPath, UPM_CHROME_USER_DATA: ud },
+    // Dữ liệu khóa (app v1.11): locks.json nằm cạnh config.json; bản dự phòng + dấu niêm phong giả lập (không đụng registry thật)
+    env: { UPM_CONFIG_PATH: configPath, UPM_CHROME_USER_DATA: ud, UPM_LOCKS_MIRROR: path.join(root, 'mirror', 'locks-backup.json'), UPM_LOCK_SEAL: '' },
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
 }
-module.exports = { makeFixture };
+// Ghi dữ liệu khóa đã niêm phong giống app (CEO, khóa nhóm, khóa riêng, cảnh báo) — mã chỉ là mẫu giả
+const CEO = 'GiaMaCEO-2026';
+function writeLocks(fx) {
+  const crypto = require('crypto');
+  const locks = require('../server/shared/locks');
+  let s = locks.setupCeo(locks.emptyState(), CEO).state;
+  s = locks.lockGroup(s, CEO, 'Khách hàng', ['Profile 12'], '246810').state;
+  s = locks.lockChrome(s, CEO, 'Profile 11', '135790').state;
+  s = locks.setWarning(s, { type: 'group', group: 'Nhân sự UP' }, '', { text: 'Chỉ dùng cho việc tuyển dụng', newCode: 'w1234' }).state;
+  s = locks.setWarning(s, { type: 'chrome', dir: 'Profile 2' }, '', { text: 'Tài khoản seeding chính, không đổi avatar', newCode: 'w5678' }).state;
+  s.counter = 5;
+  const doc = locks.sealDoc(s, crypto.randomBytes(32));
+  const primary = path.join(path.dirname(fx.configPath), 'locks.json');
+  fs.writeFileSync(primary, JSON.stringify(doc), 'utf8');
+  fs.mkdirSync(path.dirname(fx.env.UPM_LOCKS_MIRROR), { recursive: true });
+  fs.writeFileSync(fx.env.UPM_LOCKS_MIRROR, JSON.stringify(doc), 'utf8');
+  fx.env.UPM_LOCK_SEAL = locks.sealString(doc);
+  return { primary, doc };
+}
+// Giả lập người sửa file khóa: xóa hết khóa trong locks.json (dấu niêm phong không đổi)
+function tamperLocks(fx) {
+  const primary = path.join(path.dirname(fx.configPath), 'locks.json');
+  const doc = JSON.parse(fs.readFileSync(primary, 'utf8'));
+  doc.state.chromeLocks = {}; doc.state.groupLocks = {};
+  doc.mac = 'GIA' + doc.mac.slice(3);
+  fs.writeFileSync(primary, JSON.stringify(doc), 'utf8');
+  fs.writeFileSync(fx.env.UPM_LOCKS_MIRROR, JSON.stringify(doc), 'utf8');
+}
+module.exports = { makeFixture, writeLocks, tamperLocks, CEO };

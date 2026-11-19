@@ -4,7 +4,7 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const core = require('../server/core');
-const { makeFixture } = require('./fixture');
+const { makeFixture, writeLocks, tamperLocks } = require('./fixture');
 
 const fx = makeFixture();
 after(() => fx.cleanup());
@@ -136,8 +136,79 @@ test('loadProfiles: không có config.json của app → vẫn chạy bằng tê
 test('bản sao module dùng chung khớp với app (nhớ chạy npm run sync khi sửa src của app)', (t) => {
   const appSrc = path.join(__dirname, '..', '..', 'chrome-shortcut-manager', 'src');
   if (!fs.existsSync(appSrc)) { t.skip('không thấy thư mục app'); return; }
-  for (const f of ['chromeProfiles.js', 'accounts.js', 'chromeWindows.js']) {
+  for (const f of ['chromeProfiles.js', 'accounts.js', 'chromeWindows.js', 'locks.js']) {
     assert.strictEqual(fs.readFileSync(path.join(__dirname, '..', 'server', 'shared', f), 'utf8'),
       fs.readFileSync(path.join(appSrc, f), 'utf8'), f);
   }
+});
+
+// ── Khóa Chrome bằng mã + cảnh báo (app v1.11) ──
+test('loadLocks: chưa bật khóa (không có file) → không khóa gì', () => {
+  const lk = core.loadLocks(fx.configPath, fx.env);
+  assert.strictEqual(lk.failClosed, false);
+  assert.strictEqual(lk.lockOf('Profile 14'), null);
+  assert.deepStrictEqual(lk.warningsFor({ dir: 'Profile 14', groups: ['Nhân sự UP'] }), []);
+});
+
+test('loadLocks + applyLocks: đúng Chrome khóa, ẩn ghi chú + email; cảnh báo nhóm và Chrome', () => {
+  const f = makeFixture();
+  try {
+    writeLocks(f);
+    const lk = core.loadLocks(f.configPath, f.env);
+    assert.strictEqual(lk.failClosed, false);
+    assert.deepStrictEqual(lk.lockOf('Profile 11'), { type: 'chrome' });
+    assert.deepStrictEqual(lk.lockOf('Profile 12'), { type: 'group', group: 'Khách hàng' });
+    assert.strictEqual(lk.lockOf('Profile 14'), null);
+    const d = core.loadProfiles({ env: f.env, fresh: true });
+    const L = core.applyLocks(d.profiles, lk);
+    const p12 = L.find(p => p.dir === 'Profile 12');
+    assert.ok(p12.lock && p12.note === '' && p12.emails.length === 0);
+    assert.strictEqual(L.find(p => p.dir === 'Profile 14').lock, null);
+    assert.deepStrictEqual(lk.warningsFor(L.find(p => p.dir === 'Profile 14')).map(w => w.text), ['Chỉ dùng cho việc tuyển dụng']);
+    assert.deepStrictEqual(lk.warningsFor(L.find(p => p.dir === 'Profile 2')).map(w => w.source), ['chrome']);
+    // không chứa mã băm / mã gốc trong dữ liệu gửi đi
+    assert.doesNotMatch(JSON.stringify(L), /246810|135790|w1234|salt|hash/);
+  } finally { f.cleanup(); core.clearCache(); }
+});
+
+test('loadLocks: file khóa bị sửa (lệch dấu niêm phong) → khóa TOÀN BỘ; thiếu file chính mà còn bản dự phòng → khóa toàn bộ', () => {
+  const f = makeFixture();
+  try {
+    writeLocks(f);
+    tamperLocks(f);
+    const lk = core.loadLocks(f.configPath, f.env);
+    assert.strictEqual(lk.failClosed, true);
+    assert.deepStrictEqual(lk.lockOf('Profile 14'), { type: 'all' });
+    fs.rmSync(path.join(f.root, 'locks.json'));
+    const lk2 = core.loadLocks(f.configPath, { ...f.env, UPM_LOCK_SEAL: '' });
+    assert.strictEqual(lk2.failClosed, true, 'mất file chính, còn bản dự phòng');
+  } finally { f.cleanup(); }
+});
+
+test('loadLocks: quay về bản cũ (bộ đếm lệch dấu niêm phong) → khóa toàn bộ', () => {
+  const f = makeFixture();
+  try {
+    const { doc } = writeLocks(f);
+    const old = JSON.parse(JSON.stringify(doc)); old.state.counter = 3;
+    fs.writeFileSync(path.join(f.root, 'locks.json'), JSON.stringify(old));
+    assert.strictEqual(core.loadLocks(f.configPath, f.env).failClosed, true);
+  } finally { f.cleanup(); }
+});
+
+test('loadLocks: còn khóa bí mật của app mà mất cả 2 file → khóa toàn bộ; sửa 1 bản (giữ mac) không gỡ được khóa với Claude', () => {
+  const f = makeFixture();
+  try {
+    const { primary } = writeLocks(f);
+    const doc = JSON.parse(fs.readFileSync(primary, 'utf8'));
+    doc.state.chromeLocks = {};                                     // sửa nội dung, giữ nguyên counter + mac → khớp dấu niêm phong
+    fs.writeFileSync(primary, JSON.stringify(doc));
+    const lk = core.loadLocks(f.configPath, f.env);
+    assert.strictEqual(lk.failClosed, false);
+    assert.deepStrictEqual(lk.lockOf('Profile 11'), { type: 'chrome' }, 'bản dự phòng còn khóa');
+    fs.writeFileSync(path.join(f.root, 'lock.key'), 'x');
+    fs.rmSync(primary); fs.rmSync(f.env.UPM_LOCKS_MIRROR);
+    const lk2 = core.loadLocks(f.configPath, { ...f.env, UPM_LOCK_SEAL: '' });
+    assert.strictEqual(lk2.failClosed, true);
+    assert.deepStrictEqual(lk2.lockOf('Profile 14'), { type: 'all' });
+  } finally { f.cleanup(); }
 });

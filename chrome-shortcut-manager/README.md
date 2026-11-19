@@ -2,7 +2,7 @@
 
 App desktop Windows (Electron) quản lý hàng chục–trăm Chrome profile trên 1 máy: tạo shortcut, phân nhóm, kiểm tra đăng nhập mạng xã hội, quản lý tiện ích, xuất/nhập cấu hình và nhiều hơn nữa.
 
-> Phiên bản hiện tại: **v1.10.6** — xem `CHANGELOG.md` để biết lịch sử đầy đủ.
+> Phiên bản hiện tại: **v1.11.0** — xem `CHANGELOG.md` để biết lịch sử đầy đủ.
 > Repo riêng: `github.com/upmedia0108/chrome-manager-upmedia` (tách khỏi monorepo `UP-Media`).
 
 ## Tính năng chính
@@ -17,6 +17,7 @@ App desktop Windows (Electron) quản lý hàng chục–trăm Chrome profile tr
 - **Tiện ích UP Media trên Store:** icon trên header mở danh sách extension/tài liệu chính thức của UP Media (mở bằng trình duyệt).
 - **Tối ưu dung lượng:** tính & xóa cache an toàn (không đụng cookie/mật khẩu).
 - **Xuất/Nhập Excel:** xuất cấu hình ra `.xlsx`, sửa rồi nhập để **tự tạo Chrome mới** theo từng dòng (có file mẫu).
+- **Khóa Chrome bằng mã + cảnh báo khi mở (v1.11):** khóa theo nhóm hoặc từng Chrome, CEO cấp mã 6 số (gửi tay qua Fiine), mã CEO mở được tất cả; mở khóa tới khi tắt Chrome đó; cảnh báo pop-up mỗi lần mở do nhân sự tự đặt (có mã); phát hiện file khóa bị sửa → khóa toàn bộ. Nút khiên trên thẻ Chrome và cạnh tên nhóm; bật trong Cài đặt.
 - **Chống mở trùng Chrome:** khi quét lại / mở hàng loạt / mở mặc định, bỏ qua profile đang mở sẵn.
 - **Phím tắt:** Ctrl+F/N/O/G/T/L/Q/R/D, Ctrl+~, Esc — icon trên header (rê chuột xem nhanh).
 - **Cài đặt:** **tự chạy quyền Administrator** (khắc phục lỗi Unikey), mở toàn màn hình, khởi động cùng Windows, chọn profile mở mặc định, sắp xếp theo lượt mở.

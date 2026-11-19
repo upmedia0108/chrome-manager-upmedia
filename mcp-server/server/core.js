@@ -5,10 +5,11 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFile, exec, spawn } = require('child_process');
+const { execFile, exec, spawn, execFileSync } = require('child_process');
 const chromeProfiles = require('./shared/chromeProfiles');
 const accounts = require('./shared/accounts');
 const chromeWindows = require('./shared/chromeWindows');
+const locks = require('./shared/locks');
 
 // Thư mục dữ liệu của app. Thực tế trên máy (18/11/2026): %APPDATA%\\chrome-manager-upmedia (theo "name" của package.json).
 const APP_DIR_NAMES = ['chrome-manager-upmedia', 'Chrome Manager by UP Media'];
@@ -273,10 +274,67 @@ function focusProfileWindow(dir, env = process.env) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ── Khóa Chrome bằng mã + cảnh báo khi mở (app v1.11) ─────
+// Cổng ĐỌC dữ liệu khóa của app (locks.json + bản dự phòng + dấu niêm phong trong registry), không bao giờ ghi.
+// Không có khóa bí mật của app (mã hóa DPAPI) nên chỉ so bộ đếm + mã niêm phong với registry: lệch → khóa TOÀN BỘ.
+// Chrome đang khóa: KHÔNG mở, KHÔNG đưa cửa sổ lên, ẩn email / ghi chú. Cổng không bao giờ hỏi hay nhận mã.
+// Đọc mới mỗi lần gọi lệnh (không dùng bộ nhớ đệm 20 giây) để khóa có hiệu lực ngay.
+const LOCK_REG_KEY = 'HKCU\\Software\\UP Media\\Chrome Manager';
+function lockPaths(configPath, env = process.env) {
+  const appData = env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
+  const local = env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+  const dir = configPath ? path.dirname(configPath) : path.join(appData, APP_DIR_NAMES[0]);
+  return {
+    primary: env.UPM_LOCKS_PATH || path.join(dir, 'locks.json'),
+    mirror: env.UPM_LOCKS_MIRROR || path.join(local, 'UP Media', 'Chrome Manager', 'locks-backup.json'),
+  };
+}
+function readLockSeal(env = process.env) {
+  if (env.UPM_LOCK_SEAL != null) return env.UPM_LOCK_SEAL || null;     // cho test ('' = không có dấu niêm phong)
+  if (process.platform !== 'win32') return null;
+  try {
+    const out = execFileSync('reg', ['query', LOCK_REG_KEY, '/v', 'LockSeal'], { windowsHide: true, encoding: 'utf8', timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] });
+    const m = /LockSeal\s+REG_SZ\s+(\S+)/.exec(out || '');
+    return m ? m[1] : null;
+  } catch { return null; }
+}
+function loadLocks(configPath, env = process.env) {
+  const p = lockPaths(configPath, env);
+  const primary = locks.readDocFile(p.primary), mirror = locks.readDocFile(p.mirror);
+  const ev = locks.evaluateUnverified({ primary, mirror, seal: locks.parseSeal(readLockSeal(env)) });
+  // App đã từng bật khóa (còn khóa bí mật) mà mất cả 2 file dữ liệu → coi như bị xóa, khóa toàn bộ (app sẽ tự khôi phục)
+  const keyFile = path.join(path.dirname(p.primary), 'lock.key');
+  const wiped = !!(primary.missing && mirror.missing && fs.existsSync(keyFile));
+  const failClosed = ev.failClosed || wiped;
+  const ctx = { failClosed, failClosedDirs: failClosed ? 'all' : new Set() };
+  // Khóa theo CẢ 2 bản (file chính + dự phòng): một bản còn khóa là coi như khóa (sửa 1 bản không gỡ được khóa với Claude)
+  const states = [primary, mirror].filter(r => r.doc).map(r => r.doc.state);
+  if (!states.length) states.push(ev.state);
+  return {
+    failClosed,
+    lockOf: dir => { for (const st of states) { const L = locks.lockOf(st, dir, ctx); if (L) return L; } return null; },
+    warningsFor: p2 => locks.warningsFor(ev.state, p2.dir, p2.groups),
+  };
+}
+// Gắn trạng thái khóa vào danh sách; Chrome khóa bị ẩn ghi chú + email (giống app)
+function applyLocks(profiles, lk) {
+  return profiles.map(p => {
+    const L = lk.lockOf(p.dir);
+    return L ? { ...p, lock: L, note: '', noteSearch: '', emails: [] } : { ...p, lock: null };
+  });
+}
+function lockText(L) {
+  if (!L) return '';
+  if (L.type === 'group') return `khóa theo nhóm "${L.group}"`;
+  if (L.type === 'chrome') return 'khóa riêng';
+  return 'khóa toàn bộ (dữ liệu khóa có dấu hiệu bị sửa)';
+}
+
 module.exports = {
   normalizeSearch, findConfigPath, loadAppConfig, buildProfiles, loadProfiles, clearCache,
   searchProfiles, resolveProfile, resolveGroup, normalizeUrl,
   getLockedDirs, getOpenDirs, findChrome, buildChromeArgs, launchChrome, sleep, focusProfileWindow,
   safeNote, searchableNote,
+  lockPaths, readLockSeal, loadLocks, applyLocks, lockText,
   GROUP_CONFIRM_OVER, BATCH_DELAY_MS,
 };

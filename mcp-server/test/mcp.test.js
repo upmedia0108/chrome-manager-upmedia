@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const path = require('path');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { StdioClientTransport, getDefaultEnvironment } = require('@modelcontextprotocol/sdk/client/stdio.js');
-const { makeFixture } = require('./fixture');
+const { makeFixture, writeLocks, tamperLocks } = require('./fixture');
 
 const fx = makeFixture();
 let client;
@@ -100,4 +100,77 @@ test('mo_nhom: nhóm nhỏ mở luôn; nhóm + danh mục con; nhóm không có'
   const bad = await call('mo_nhom', { nhom: 'Không có' });
   assert.strictEqual(bad.isError, true);
   assert.match(bad.text, /Các nhóm hiện có: Social, Digital, Nhân sự UP, Khách hàng/);
+});
+
+// ── Khóa Chrome bằng mã + cảnh báo khi mở (app v1.11) ──
+async function startClient(fxL, extraEnv = {}) {
+  const c = new Client({ name: 'test-lock', version: '1.0.0' });
+  await c.connect(new StdioClientTransport({
+    command: process.execPath,
+    args: [path.join(__dirname, '..', 'server', 'index.js')],
+    env: { ...getDefaultEnvironment(), ...fxL.env, UPM_MCP_DRY_RUN: '1', UPM_MCP_FAKE_RUNNING: '', ...extraEnv },
+    stderr: 'ignore',
+  }));
+  const fn = async (name, args) => {
+    const r = await c.callTool({ name, arguments: args });
+    return { text: r.content.map(x => x.text).join('\n'), isError: !!r.isError };
+  };
+  fn.close = () => c.close();
+  return fn;
+}
+
+test('khóa: Chrome đang khóa không mở được, không lộ email / ghi chú, không nhận mã', async () => {
+  const fxL = makeFixture(); writeLocks(fxL);
+  const callL = await startClient(fxL);
+  try {
+    const list = await callL('tim_chrome', { tu_khoa: 'thanh' });
+    assert.match(list.text, /"khoa": "khóa riêng"/);
+    assert.match(list.text, /"khoa": "khóa theo nhóm \\"Khách hàng\\""/);
+    assert.doesNotMatch(list.text, /246810|135790|w1234|hash|salt/);
+    const a = await callL('mo_chrome', { ten: 'thanh ha' });
+    assert.strictEqual(a.isError, true);
+    assert.match(a.text, /đang khóa riêng\. Claude không mở được/);
+    assert.doesNotMatch(a.text, /chạy khô|chrome\.exe/);
+    const b = await callL('mo_chrome', { ten: 'Profile 12', mo_them_cua_so: true });
+    assert.strictEqual(b.isError, true); assert.match(b.text, /khóa theo nhóm "Khách hàng"/);
+    const c = await callL('mo_link', { ten: '11', url: 'facebook.com' });
+    assert.strictEqual(c.isError, true); assert.doesNotMatch(c.text, /chạy khô/);
+    const d = await callL('mo_nhom', { nhom: 'Khách hàng' });
+    assert.strictEqual(d.isError, true); assert.match(d.text, /đều đang khóa bằng mã/);
+  } finally { await callL.close(); fxL.cleanup(); }
+});
+
+test('cảnh báo: lần đầu chỉ trả cảnh báo + mã xác nhận, chưa mở; gọi lại đúng mã mới mở (mo_chrome, mo_link, mo_nhom)', async () => {
+  const fxL = makeFixture(); writeLocks(fxL);
+  const callL = await startClient(fxL);
+  const tokenOf = t => (/ma_canh_bao="([0-9A-F]{6})"/.exec(t) || [])[1];
+  try {
+    const a = await callL('mo_chrome', { ten: 'dinh thi thanh' });
+    assert.strictEqual(a.isError, false);
+    assert.match(a.text, /CHƯA mở/); assert.match(a.text, /Cảnh báo nhóm "Nhân sự UP": Chỉ dùng cho việc tuyển dụng/);
+    assert.doesNotMatch(a.text, /chạy khô/);
+    const bad = await callL('mo_chrome', { ten: 'dinh thi thanh', ma_canh_bao: '000000' });
+    assert.doesNotMatch(bad.text, /chạy khô/, 'mã đoán bừa không mở được');
+    const a2 = await callL('mo_chrome', { ten: 'dinh thi thanh', ma_canh_bao: tokenOf(a.text) });
+    assert.match(a2.text, /\[chạy khô\] chrome\.exe --profile-directory=Profile 14 /);
+    const l = await callL('mo_link', { ten: 'Seeding FB 01', url: 'facebook.com' });
+    assert.match(l.text, /Cảnh báo Chrome "Seeding FB 01": Tài khoản seeding chính/); assert.doesNotMatch(l.text, /chạy khô/);
+    const n = await callL('mo_nhom', { nhom: 'FB', xac_nhan: true });
+    assert.match(n.text, /CHƯA mở/); assert.match(n.text, /ma_canh_bao="/); assert.doesNotMatch(n.text, /chạy khô/);
+    const n2 = await callL('mo_nhom', { nhom: 'FB', xac_nhan: true, ma_canh_bao: tokenOf(n.text) });
+    assert.match(n2.text, /Đã mở 9\/9 Chrome trong "FB"/);
+  } finally { await callL.close(); fxL.cleanup(); }
+});
+
+test('khóa: dữ liệu khóa bị sửa → cổng khóa toàn bộ, báo rõ', async () => {
+  const fxL = makeFixture(); writeLocks(fxL); tamperLocks(fxL);
+  const callL = await startClient(fxL);
+  try {
+    const a = await callL('mo_chrome', { ten: 'dinh thi thanh' });
+    assert.strictEqual(a.isError, true); assert.match(a.text, /khóa toàn bộ/);
+    const t = await callL('tim_chrome', {});
+    assert.match(t.text, /có dấu hiệu bị sửa/);
+    const n = await callL('mo_nhom', { nhom: 'Social', xac_nhan: true });
+    assert.strictEqual(n.isError, true);
+  } finally { await callL.close(); fxL.cleanup(); }
 });

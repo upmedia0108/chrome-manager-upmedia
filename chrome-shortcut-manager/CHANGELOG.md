@@ -2,6 +2,24 @@
 
 Tất cả thay đổi theo từng phiên bản.
 
+## v1.11.0
+- **Khóa mở Chrome bằng mã + cảnh báo khi mở** (máy dùng chung ở công ty).
+  - **Mã CEO** (≥ 8 ký tự, đặt trên từng máy khi bật tính năng, kèm **mã khẩn cấp** hiện 1 lần): mở được mọi Chrome/nhóm đang khóa; cần để khóa, gỡ khóa, cấp lại mã, xóa nhóm đang khóa, xem nhật ký. Không có mã CEO nào nằm trong code/repo.
+  - **Khóa nhóm** (dùng nhóm sẵn có) hoặc **khóa riêng 1 Chrome**; mỗi Chrome chỉ 1 lớp khóa. App tự tạo mã 6 số, hiện 1 lần + nút "Sao chép tin nhắn Fiine". Chỉ lưu mã đã băm (scrypt).
+  - **Mã nhóm**: mở cả nhóm (hỏi 1 lần khi "Mở tất cả"), thêm Chrome chưa khóa vào nhóm (Chrome khóa theo nhóm), gỡ Chrome khỏi nhóm (Chrome hết khóa), đổi tên nhóm.
+  - **Mở khóa tới khi tắt Chrome đó**: sau 45 giây, Chrome nào không còn cửa sổ 2 lần đọc liên tiếp (~15 giây/lần; Chrome chạy ngầm cũng tính là đã tắt) tự khóa lại. Tắt app hoặc "Đóng tất cả Chrome" thì mọi Chrome khóa lại.
+  - Chrome đang khóa: ẩn ghi chú, Gmail, lịch sử, cookie/mạng xã hội; không đổi tên, không xóa, không chuyển nhóm khóa; xóa shortcut Desktop và không cho tạo lại; bỏ qua khi "Mở tất cả", "Tạo tất cả shortcut", mở profile mặc định.
+  - **Cảnh báo khi mở** cho từng Chrome và từng nhóm, nhân sự tự đặt kèm **mã cảnh báo** (sửa/tắt cần mã cảnh báo, mã khóa của mục đó hoặc mã CEO). Pop-up hiện mỗi lần bấm mở.
+  - **Phát hiện sửa file**: dữ liệu khóa ký HMAC, lưu file chính `%APPDATA%\chrome-manager-upmedia\locks.json` + bản dự phòng `%LOCALAPPDATA%\UP Media\Chrome Manager\locks-backup.json` + **bản neo** (trạng thái mới nhất cất cùng khóa bí mật trong `lock.key`, mã hóa DPAPI qua `safeStorage`) + dấu niêm phong registry `HKCU\Software\UP Media\Chrome Manager\LockSeal` (cho cổng MCP). File bị sửa / xóa / chép đè bản cũ → **tự khôi phục từ bản neo**, thanh vàng, ghi nhật ký. **Khóa toàn bộ** (thanh đỏ, nhập mã CEO / mã khẩn cấp) khi mất khóa bí mật hoặc mọi nơi đều bị chép đè bản cũ; mất cả khóa bí mật lẫn dữ liệu đáng tin → chỉ "Đặt lại từ đầu" (mã CEO mới, bỏ khóa cũ, ghi nhật ký). Khôi phục không bao giờ tin mã CEO trong file chưa kiểm được. Lỗi đọc/ghi bất ngờ → khóa toàn bộ, không bao giờ "mở toang".
+  - Nhập sai mã 5 lần / mục → chặn mục đó 5 phút; sai tổng 15 lần (mọi mục) → chặn mọi lần nhập mã 5 phút. **Nhật ký bảo vệ** (200 sự kiện gần nhất) xem bằng mã CEO.
+  - Cửa sổ app chặn chuyển trang / mở cửa sổ mới (trang lạ không dùng được `window.app`); so thư mục profile không phân biệt hoa thường; "Đóng tất cả Chrome" khóa lại ngay mọi Chrome đang mở khóa; nhập đúng mã nhưng Hủy ở pop-up cảnh báo → khóa lại ngay.
+- Module mới: `src/locks.js` (lõi thuần, dùng chung với cổng MCP), `src/lockService.js` (theo dõi mở khóa, chặn đoán mã, ẩn dữ liệu), `renderer/locksUi.js` (giao diện). `main.js` chặn mọi IPC đụng tới Chrome đang khóa; 17 IPC mới `lock-*` / `warning-*` (xem `preload.js`).
+- Cổng MCP **1.3.0**: tôn trọng khóa (không mở, không đưa cửa sổ lên, ẩn ghi chú/email; khóa tính theo cả file chính lẫn bản dự phòng), bắt đọc cảnh báo (`ma_canh_bao=<mã xác nhận>` lấy từ lần trả cảnh báo), dữ liệu khóa bị sửa / bị xóa → khóa toàn bộ.
+- Đã qua kiểm tra độc lập (trợ lý riêng chỉ đọc đặc tả): sửa 4 lỗi nặng (lỗi ghi lúc khôi phục làm mất khóa; khôi phục tin mã CEO trong file đã bị sửa; xóa file làm CEO bị khóa ngoài vĩnh viễn; cổng MCP tin file chỉ sửa nội dung) và các lỗi vừa / nhỏ (dò mã CEO qua lệnh cảnh báo, bỏ qua mã cảnh báo khi xóa / đổi tên nhóm, Chrome chạy ngầm không tự khóa lại, mở từ Lịch sử không hiện cảnh báo, nhập Excel gán thẳng nhóm khóa…).
+- Test: +30 unit test (`test/locks.test.js`, `test/lockService.test.js`), app tổng 56; kiểm thử giao diện tự động 21 kịch bản (Playwright, phần nền giả lập dùng lõi khóa thật).
+
+---
+
 ## v1.10.6
 - **Sửa "Đang mở" chỉ thấy 1 Chrome.** Chẩn đoán trên máy thật (18/11/2026): Chrome gom MỌI profile vào 1 tiến trình trình duyệt, dòng lệnh chỉ còn `--profile-directory` của profile mở đầu tiên → cách đọc dòng lệnh (PowerShell CIM) chỉ thấy 1 profile. Module mới `src/chromeWindows.js`:
   - `getLoadedProfileDirs(userDataPath)`: profile đang mở = Chrome đang khóa `Network/Cookies` (hoặc `Cookies`, `Local Storage/leveldb/LOCK`) — Node thuần, khớp 3/3 Chrome đang mở trên máy thật. Thay `getChromeCommandLines`/`getRunningProfileDirs`/`isChromeRunningForProfile` trong `main.js` (đã gỡ cách cũ). Vòng làm mới 4 giây không còn gọi PowerShell.

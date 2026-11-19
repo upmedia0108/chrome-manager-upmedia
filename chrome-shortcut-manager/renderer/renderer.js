@@ -14,6 +14,14 @@ let lastScan = { machineCount: 0, missing: [] }; // kết quả so sánh "Chrome
 
 // ── Changelog — lịch sử phiên bản (mới nhất lên đầu) ──────
 const CHANGELOG = [
+  { v: '1.11.0', items: [
+    'Khóa mở Chrome bằng mã (máy dùng chung): khóa theo nhóm hoặc từng Chrome, mỗi Chrome chỉ 1 lớp khóa. Bấm nút khiên trên thẻ Chrome hoặc cạnh tên nhóm ở cột trái. Bật trong Cài đặt → "Khóa Chrome bằng mã" (đặt mã CEO, nhận mã khẩn cấp 1 lần)',
+    'CEO cấp mã 6 số cho từng nhóm / từng Chrome, có nút "Sao chép tin nhắn Fiine" để gửi tay cho nhân sự. Mã CEO mở được mọi Chrome và nhóm đang khóa',
+    'Nhập đúng mã thì Chrome mở khóa tới khi tắt Chrome đó (đóng cửa sổ ~1 phút sau tự khóa lại). "Mở tất cả" trong nhóm khóa chỉ hỏi mã 1 lần. Có mã nhóm thì tự thêm Chrome chưa khóa vào nhóm hoặc gỡ ra',
+    'Chrome đang khóa: ẩn ghi chú, Gmail, lịch sử, mạng xã hội; không đổi tên, không xóa, không tạo shortcut Desktop; Claude cũng không mở được',
+    'Cảnh báo pop-up mỗi lần mở Chrome, đặt riêng cho từng Chrome và từng nhóm, có mã cảnh báo để người khác không tắt được (mã CEO đặt lại được)',
+    'Phát hiện file khóa bị sửa / xóa / chép đè bản cũ: tự khôi phục từ bản dự phòng (thanh vàng) hoặc khóa toàn bộ tới khi nhập mã CEO (thanh đỏ). Nhập sai mã 5 lần bị chặn 5 phút. Nhật ký bảo vệ xem bằng mã CEO',
+  ] },
   { v: '1.10.6', items: [
     'Sửa lỗi nhãn "Đang mở" chỉ hiện 1 Chrome dù mở nhiều: nay nhận đúng TỪNG Chrome đang mở (kiểm tra file dữ liệu Chrome đang giữ) — nhanh, nhẹ máy hơn hẳn (không còn gọi PowerShell mỗi 4 giây)',
     'Bấm nhãn "Đang mở" nhảy đúng cửa sổ của profile đó (trước đây có thể nhảy nhầm, vd Profile 1 sang Profile 14); cửa sổ đang phóng to giữ nguyên, chỉ cửa sổ đang thu nhỏ mới được bung ra',
@@ -304,7 +312,9 @@ function renderSidebar() {
     gEl.className = `sidebar-item${isGroupActive ? ' active' : ''}`;
     gEl.innerHTML = `
       <span class="group-dot gc-${groupClass(g)}"></span>
-      <span>${eh(g)}</span><span class="sidebar-count">${cnt}</span>`;
+      <span class="sg-name">${eh(g)}</span>${sidebarGroupLockHtml(g)}<span class="sidebar-count">${cnt}</span>`;
+    gEl.classList.add('sidebar-group');
+    wireSidebarGroupProtect(gEl, g);
     gEl.addEventListener('click', () => { activeSidebarFilter = { type:'group', group:g }; clearSearchInput(); renderSidebar(); applyFilter(); });
     sg.appendChild(gEl);
 
@@ -525,13 +535,15 @@ async function togglePin(dir) {
   const p = allProfiles.find(x => x.profileDirectory === dir);
   if (!p) return;
   p.pinned = !p.pinned;
-  await window.app.saveProfileConfig(dir, { pinned: p.pinned });
+  await saveProfileCfg(dir, { pinned: p.pinned });
   showToast(p.pinned ? 'Đã ghim lên đầu trang' : 'Đã bỏ ghim', p.pinned ? 'success' : 'info');
   applyFilter(); // vẽ lại để profile ghim nhảy lên đầu
 }
 
 // ── Mở profile từ UI (bump lượt mở + báo nếu đã mở sẵn) ────
 async function openProfileFromUI(dir, card) {
+  // Khóa bằng mã + cảnh báo (v1.11): hỏi mã nếu Chrome đang khóa, rồi hiện cảnh báo trước khi mở
+  if (!(await openGate(dir))) return { success: false, cancelled: true };
   bumpOpenCount(dir);
   if (card) { const oc = card.querySelector('.row-opens'); if (oc) oc.textContent = getOpenCount(dir); }
   const res = await window.app.openProfile(dir);
@@ -540,6 +552,7 @@ async function openProfileFromUI(dir, card) {
     else if (res.alreadyOpen) showToast('Chrome profile này đang mở sẵn — bấm vào Chrome đó trên thanh taskbar', 'warning');
     else showToast('Đang mở Chrome profile...', 'info');
   }
+  else if (res.locked) { showToast(res.error, 'warning'); scheduleLockRefresh(); }
   else showToast(res.error, 'error');
   setTimeout(refreshRunning, 1200); // cập nhật nhãn "đang mở"
   return res;
@@ -577,7 +590,7 @@ function renderTagsInto(container, profile, card) {
     tag.querySelector('.remove-tag').addEventListener('click', async () => {
       profile.groups = profile.groups.filter(x => x !== g);
       const subs = { ...profile.subGroups }; delete subs[g]; profile.subGroups = subs;
-      await window.app.saveProfileConfig(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
+      await saveProfileCfg(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
       buildGroupTags(profile, card);
       refreshAvatarInCard(card, profile);
     });
@@ -713,7 +726,7 @@ function buildGroupTags(profile, card) {
           ...(profile.subGroups || {}),
           [g]: cb.checked ? [...current, sub] : current.filter(x => x !== sub)
         };
-        await window.app.saveProfileConfig(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
+        await saveProfileCfg(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
         const tagsWrap = card.querySelector('.tags-wrap');
         if (tagsWrap) renderTagsInto(tagsWrap, profile, card);
         refreshAvatarInCard(card, profile);
@@ -739,7 +752,7 @@ function buildGroupTags(profile, card) {
         if (!profile.groups.includes(g)) profile.groups = [...(profile.groups || []), g];
         const cur = (profile.subGroups || {})[g] || [];
         profile.subGroups = { ...(profile.subGroups || {}), [g]: Array.from(new Set([...cur, subName])) };
-        await window.app.saveProfileConfig(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
+        await saveProfileCfg(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
         renderSidebar();
         buildGroupTags(profile, card);
         refreshAvatarInCard(card, profile);
@@ -769,7 +782,7 @@ function buildGroupTags(profile, card) {
       } else {
         profile.groups = [...(profile.groups || []), g];
       }
-      await window.app.saveProfileConfig(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
+      await saveProfileCfg(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
       menu.classList.remove('open');
       buildGroupTags(profile, card);
       refreshAvatarInCard(card, profile);
@@ -786,7 +799,7 @@ function buildGroupTags(profile, card) {
     onCreate: async (name) => {
       if (!allGroups.includes(name)) { allGroups = [...allGroups, name]; await window.app.saveGroups(allGroups); }
       profile.groups = Array.from(new Set([...(profile.groups || []), name]));
-      await window.app.saveProfileConfig(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
+      await saveProfileCfg(profile.profileDirectory, { groups: profile.groups, subGroups: profile.subGroups });
       menu.classList.remove('open');
       renderSidebar();
       buildGroupTags(profile, card);
@@ -972,7 +985,7 @@ async function buildCard(profile) {
     const p = allProfiles.find(x=>x.profileDirectory===e.target.dataset.dir);
     if (!p) return;
     p.notes = notes;
-    await window.app.saveProfileConfig(e.target.dataset.dir, { notes });
+    await saveProfileCfg(e.target.dataset.dir, { notes });
     const toggle = card.querySelector('.notes-toggle');
     const dot = toggle.querySelector('.notes-dot');
     if (notes.trim()&&!dot){const d=document.createElement('span');d.className='notes-dot';toggle.appendChild(d);}
@@ -991,7 +1004,7 @@ async function buildCard(profile) {
     if (dup.isDuplicate) { if(warn) warn.classList.add('show'); return; }
     if (warn) warn.classList.remove('show');
     p.shortcutName = name;
-    await window.app.saveProfileConfig(dir, { shortcutName: name });
+    await saveProfileCfg(dir, { shortcutName: name });
     card.querySelector('.profile-name-info h3').textContent = name||p.chromeProfileName||p.profileDirectory;
     refreshAvatarInCard(card, p);
     // Cập nhật ngay số đếm "Chưa đặt tên" (header + sidebar) tại chỗ, không cần quét lại.
@@ -1088,6 +1101,7 @@ async function buildCard(profile) {
     openProfileFromUI(profile.profileDirectory, card);
   });
 
+  decorateCardLock(card, profile);
   return card;
 }
 
@@ -1423,6 +1437,7 @@ async function openHistoryModal(profile, profilePath) {
     `;
     li.addEventListener('click', async () => {
       closeHistoryModal();
+      if (!(await openGate(profile.profileDirectory))) return;   // mã khóa + cảnh báo trước khi mở (v1.11)
       const r = await window.app.openProfileUrl(profile.profileDirectory, item.url);
       if (r.success) showToast('Đang mở Chrome với trang web...','info');
       else showToast(r.error,'error');
@@ -1625,6 +1640,7 @@ function buildRow(profile) {
     openProfileFromUI(profile.profileDirectory, row);
   });
 
+  decorateRowLock(row, profile);
   return row;
 }
 
@@ -1715,6 +1731,7 @@ function updateRunningBadges() {
 }
 
 async function focusProfileWindow(dir) {
+  if (!(await ensureUnlocked(dir))) return;
   const r = await window.app.focusProfileWindow(dir);
   if (!r.success) showToast(r.notFound ? 'Không tìm thấy cửa sổ Chrome của profile này (có thể đã đóng)' : 'Windows chưa cho đưa cửa sổ lên trước — bấm vào Chrome đó trên thanh taskbar', 'warning');
 }
@@ -1753,12 +1770,17 @@ async function openAllFiltered() {
   if (!currentFiltered.length) return;
   const btn = document.getElementById('btn-open-all');
   btn.disabled=true;
-  const dirs = currentFiltered.map(p=>p.profileDirectory);
+  const wanted = currentFiltered.map(p=>p.profileDirectory);
+  // Khóa bằng mã + cảnh báo (v1.11): mỗi nhóm khóa hỏi mã 1 lần, rồi 1 pop-up cảnh báo chung
+  const dirs = await batchGate(wanted);
+  if (!dirs.length) { btn.disabled=false; return; }
   dirs.forEach(d => bumpOpenCount(d));
   const res = await window.app.openProfilesBatch(dirs);
   btn.disabled=false;
   const parts = [`Đã mở ${res.ok} profile`];
   if (res.skipped) parts.push(`${res.skipped} đã mở sẵn (bỏ qua)`);
+  const lockedSkip = (wanted.length - dirs.length) + (res.lockedSkipped || 0);
+  if (lockedSkip) parts.push(`${lockedSkip} đang khóa (bỏ qua)`);
   if (res.fail) parts.push(`${res.fail} lỗi`);
   showToast(parts.join(', '), res.fail ? 'warning' : 'success');
 }
@@ -1769,7 +1791,9 @@ async function createAllShortcuts() {
   let ok=0,fail=0,dup=0;
   const btn = document.getElementById('btn-create-all');
   btn.disabled=true; btn.textContent='Đang tạo...';
+  let locked=0;
   for (const p of allProfiles) {
+    if (p.lock) { locked++; continue; }   // Chrome có khóa: không tạo shortcut Desktop
     const name = p.shortcutName||p.chromeProfileName||p.profileDirectory;
     const d = await window.app.checkDuplicateName(p.profileDirectory, name);
     if (d.isDuplicate) { dup++; continue; }
@@ -1781,6 +1805,7 @@ async function createAllShortcuts() {
   updateStats(allProfiles); applyFilter();
   let msg=`Đã tạo ${ok} shortcut`;
   if (dup) msg+=`, bỏ qua ${dup} tên trùng`;
+  if (locked) msg+=`, bỏ qua ${locked} Chrome đang khóa`;
   if (fail) msg+=`, lỗi ${fail}`;
   showToast(msg, fail||dup?'warning':'success');
 }
@@ -1955,16 +1980,28 @@ async function renameSubInProfiles(group, oldSub, newSub) {
     const subs = (p.subGroups||{})[group];
     if (subs && subs.includes(oldSub)) {
       p.subGroups[group] = subs.map(x => x === oldSub ? newSub : x);
-      await window.app.saveProfileConfig(p.profileDirectory, { subGroups: p.subGroups });
+      await saveProfileCfg(p.profileDirectory, { subGroups: p.subGroups });
     }
   }
 }
 
 async function saveGroups() {
-  // Detect renames and update all profiles
+  // v1.11: bước 1 — xóa nhóm (nhóm đang khóa cần mã CEO) khi tên các nhóm còn lại chưa đổi
+  const keptOriginals = tempGroups.filter(g => g.original).map(g => g.original);
+  const afterDelete = allGroups.filter(g => keptOriginals.includes(g));
+  if (afterDelete.length !== allGroups.length && !(await saveGroupListWithLock(afterDelete))) return;
+  allGroups = afterDelete;
+  // Bước 2 — đổi tên (nhóm đang khóa cần mã nhóm); không đổi được thì giữ tên cũ
+  let renameKept = 0;
   for (const gObj of tempGroups) {
     if (gObj.original && gObj.name !== gObj.original) {
-      await window.app.renameGroupInProfiles(gObj.original, gObj.name);
+      if (!(await renameGroupWithLock(gObj.original, gObj.name))) {
+        if (tempGroupSubs[gObj.name] !== undefined && gObj.name !== gObj.original) {
+          tempGroupSubs[gObj.original] = tempGroupSubs[gObj.name]; delete tempGroupSubs[gObj.name];
+        }
+        gObj.name = gObj.original; renameKept++;
+        continue;
+      }
       // Update in-memory profiles too
       allProfiles.forEach(p => {
         if ((p.groups||[]).includes(gObj.original)) {
@@ -1980,10 +2017,11 @@ async function saveGroups() {
 
   allGroups = tempGroups.map(g => g.name).filter(n=>n.trim());
   allGroupSubs = tempGroupSubs;
-  await window.app.saveGroups(allGroups);
+  await saveGroupListWithLock(allGroups);
   await window.app.saveGroupSubs(allGroupSubs);
   renderSidebar(); closeGroupModal();
-  showToast('Đã lưu danh sách nhóm','success');
+  if (renameKept) showToast(`Đã lưu danh sách nhóm — ${renameKept} nhóm khóa giữ tên cũ (chưa nhập đúng mã nhóm)`,'warning');
+  else showToast('Đã lưu danh sách nhóm','success');
   // Re-render cards to reflect group name changes
   applyFilter();
 }
@@ -2130,6 +2168,7 @@ async function confirmCreateProfile() {
   const notes = document.getElementById('new-profile-notes').value.trim();
   closeNewProfileModal();
   const res = await window.app.createChromeProfile(name, newProfileSelectedGroups, newProfileSubGroups, notes);
+  if (res && (res.strippedLockedGroups || []).length) showToast(`Chưa gán vào nhóm đang khóa ${res.strippedLockedGroups.map(g => `"${g}"`).join(', ')} — bấm nút khiên của nhóm → "Thêm vào nhóm" (cần mã nhóm)`, 'warning');
   if (res.success) {
     let msg=`Chrome mở tài khoản mới (${res.profileDirectory})`;
     if (name) msg+=` — đã đặt tên "${name}"`;
@@ -2667,6 +2706,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-view-grid').classList.toggle('active', viewMode==='grid');
   document.getElementById('btn-view-list').classList.toggle('active', viewMode==='list');
 
+  initLockUi();
+  await loadLockStatus();
   renderSidebar();
   await scanProfiles();
 
@@ -2675,7 +2716,10 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Tự mở profile mặc định khi khởi động (nếu đã cấu hình)
   const defProfile = localStorage.getItem('upm_default_open_profile');
-  if (defProfile && allProfiles.some(p => p.profileDirectory === defProfile)) {
+  const defP = defProfile && allProfiles.find(p => p.profileDirectory === defProfile);
+  if (defP && isProfileBlocked(defP)) {
+    showToast('Profile mặc định đang khóa — bấm Mở và nhập mã để dùng', 'warning');
+  } else if (defP && (await confirmWarnings([defProfile]))) {
     bumpOpenCount(defProfile);
     window.app.openProfile(defProfile).then(res => {
       if (res.success && !res.alreadyOpen) showToast('Đã tự mở profile mặc định','info');

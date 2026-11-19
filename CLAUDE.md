@@ -1,7 +1,7 @@
 # CHROME MANAGER BY UP MEDIA — Tài liệu kỹ thuật toàn diện
 
 > Tài liệu này dành cho các phiên Claude Code / dev mới để hiểu toàn bộ lịch sử, kiến trúc, vấn đề đã giải quyết và định hướng phát triển của phần mềm này.
-> Cập nhật lần cuối: **v1.10.6** (sửa nhận diện Chrome đang mở theo từng profile + nhảy đúng cửa sổ — Mục 19). Trước đó **v1.10.0** (định vị Chrome đang mở + đồng bộ tên lên Chrome — Mục 17). Trước đó v1.9.4 (sửa bộ lọc "Chưa đặt tên" — Mục 16), v1.9.0 (repo riêng + ghim profile + box so sánh quét + Basic/Pro + chống mở trùng bền trên Win 11 24H2) — Mục 15.
+> Cập nhật lần cuối: **v1.11.0** (khóa mở Chrome bằng mã + cảnh báo khi mở + phát hiện sửa file — **Mục 20**). Trước đó **v1.10.6** (sửa nhận diện Chrome đang mở theo từng profile + nhảy đúng cửa sổ — Mục 19). Trước đó **v1.10.0** (định vị Chrome đang mở + đồng bộ tên lên Chrome — Mục 17). Trước đó v1.9.4 (sửa bộ lọc "Chưa đặt tên" — Mục 16), v1.9.0 (repo riêng + ghim profile + box so sánh quét + Basic/Pro + chống mở trùng bền trên Win 11 24H2) — Mục 15.
 > **Cổng MCP cho Claude Desktop** (Claude tìm & mở Chrome theo tên): thư mục `mcp-server/` — Mục 18 + `mcp-server/README.md`.
 > **Repo riêng (mới):** `github.com/upmedia0108/chrome-manager-upmedia` — tách khỏi monorepo `UP-Media` cũ. Nhánh phát hành vẫn là `main`.
 
@@ -525,6 +525,7 @@ Functions:
 - **Social/Gmail/History:** `getSocialStatus`, `getSocialStatusBatch`, `getSocialSites`/`saveSocialSites`, `getCookiesForDomain`, `debugSocialStatus`, `socialStatusKillReopen`, `getGoogleAccounts`, `getProfileHistory`.
 - **Excel:** `exportData`, `importData`, `exportTemplate`.
 - **Hệ thống:** `getAutoLaunch`/`setAutoLaunch`, `getAutoElevate`/`setAutoElevate`, `openExternal`.
+- **Khóa bằng mã + cảnh báo (v1.11, Mục 20):** `lockStatus`, `lockSetup`, `lockChangeCeo`, `lockEvents`, `lockRecover`, `lockReset`, `lockChrome`, `lockGroup`, `lockRemove`, `lockResetPin`, `lockAddMember`, `lockRemoveMember`, `lockUnlock`, `lockUnlockMany`, `lockRelock`, `warningSet`, `warningsFor`, sự kiện `onLocksChanged`. `saveGroups(groups, code)` và `renameGroupInProfiles(old, new, code)` nhận thêm mã.
 
 > Đã gỡ: `removeBadExtensions` (theo tính năng "Dọn tiện ích" cũ) — không còn trong preload/main.
 
@@ -721,7 +722,7 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 
 ---
 
-## 18. CỔNG MCP CHO CLAUDE DESKTOP (`mcp-server/`, v1.2.0)
+## 18. CỔNG MCP CHO CLAUDE DESKTOP (`mcp-server/`, v1.3.0)
 
 > Nhu cầu: Sếp nói với Claude "mở Chrome <tên>" → Claude tự tìm đúng profile và mở. Claude trên mây KHÔNG gọi được API localhost của máy, nên làm **MCP server chạy local qua stdio**, đóng gói **Desktop Extension `.mcpb`** cài 1 lần vào app Claude (Claude Desktop có sẵn Node, không cần cài thêm). Chat Claude trên mây đã liên kết máy cũng gọi được (qua cầu nối thiết bị).
 
@@ -729,7 +730,7 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 - Thư mục **`mcp-server/`** (độc lập với app, KHÔNG nằm trong `chrome-shortcut-manager/`, CI build app không đụng tới).
 - `server/index.js`: 4 lệnh MCP (SDK `@modelcontextprotocol/sdk` 1.32.2 + `zod` 4) — `tim_chrome` (chỉ đọc), `mo_chrome`, `mo_link`, `mo_nhom` + hướng dẫn (instructions) cho Claude.
 - `server/core.js`: logic thuần — đọc `%APPDATA%\chrome-manager-upmedia\config.json` (dò cả `Chrome Manager by UP Media`) (tên, nhóm, danh mục con, ghi chú, ghim), quét Chrome User Data, khớp tên (không dấu, ưu tiên khớp chặt → lỏng; trùng nhiều trả danh sách), mở Chrome (`spawn` chrome.exe, không `--remote-debugging-port`), dò Chrome đang mở + đưa cửa sổ lên trước bằng module chung `chromeWindows.js` (từ MCP v1.1.0 — Mục 19).
-- `server/shared/`: **bản sao** `chromeProfiles.js`, `accounts.js`, `chromeWindows.js` của app. **Sửa 3 file này trong `chrome-shortcut-manager/src` → chạy `cd mcp-server && npm run sync`**; test đối chiếu báo đỏ nếu lệch.
+- `server/shared/`: **bản sao** `chromeProfiles.js`, `accounts.js`, `chromeWindows.js`, `locks.js` của app. **Sửa 4 file này trong `chrome-shortcut-manager/src` → chạy `cd mcp-server && npm run sync`**; test đối chiếu báo đỏ nếu lệch.
 - Không cần mở app; cache quét 20 giây.
 
 ### 18.2 An toàn
@@ -737,9 +738,10 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 - ⚠️ **Ghi chú của app có thể chứa mật khẩu / 2FA / cookie** (thấy khi test thật 19/11/2026 — MCP 1.1.0 trả nguyên văn). Từ 1.2.0: `safeNote()` chỉ gửi đoạn đầu (trước xuống dòng/tab/`|`, ≤80 ký tự), đoạn trông như thông tin đăng nhập (`pass`, `2fa`, `cookie`, `c_user`, `xs=`, token dài, từ trộn hoa-thường-số ≥8 ký tự…) → ẩn hẳn; tìm kiếm cũng chỉ trên đoạn đầu an toàn (`searchableNote`). Dữ liệu profile gửi cho Claude KHÔNG còn trường ghi chú gốc.
 - Tên khớp nhiều → không mở, trả danh sách để Claude hỏi lại. Mở nhóm > 5 Chrome → cần `xac_nhan=true`.
 - `mo_link` chỉ nhận http/https (chuẩn hóa qua `URL`, không chèn được tham số dòng lệnh Chrome).
+- **Khóa bằng mã (MCP 1.3.0, app v1.11 — Mục 20):** mỗi lệnh đọc mới `locks.json` + bản dự phòng + dấu niêm phong registry (chỉ đọc). Chrome có khóa → không mở, không đưa cửa sổ lên, ẩn ghi chú/email, trả trường `khoa`; cổng không hỏi, không nhận mã. Chrome/nhóm có cảnh báo → lần đầu chỉ trả cảnh báo + mã xác nhận 6 ký tự (suy ra từ nội dung cảnh báo), gọi lại với `ma_canh_bao=<mã>` mới mở (Claude phải đọc cảnh báo cho người dùng trước). Khóa tính theo cả file chính lẫn bản dự phòng; dấu niêm phong lệch, hoặc còn `lock.key` mà mất cả 2 file → khóa toàn bộ.
 
 ### 18.3 Test & đóng gói
-- `cd mcp-server && npm install && npm test` — 22 test: lõi + đầu-cuối bằng client MCP chính thức (chạy khô `UPM_MCP_DRY_RUN=1`).
+- `cd mcp-server && npm install && npm test` — 33 test (1.3.0): lõi + đầu-cuối bằng client MCP chính thức (chạy khô `UPM_MCP_DRY_RUN=1`).
 - `npm run pack` — sync → test → `mcpb validate` → `mcpb pack` → **giải nén gói ra thư mục tạm và chạy thử** (`scripts/smoke-bundle.js`) → `dist/Chrome-Manager-UP-Media-MCP-<version>.mcpb` (`dist/` không lên Git). Nâng version: sửa cả `package.json` + `manifest.json`.
 - ⚠️ `.mcpbignore` phải dùng mẫu có `/` đầu dòng (`/dist/`, `/test/`): mẫu `dist/` chung chung từng xóa nhầm `node_modules/@modelcontextprotocol/sdk/dist` → gói hỏng (bước chạy thử sau đóng gói sẽ chặn lỗi này).
 - Lưu ý môi trường Cowork: shell trên máy Sếp không xóa được file trong thư mục kết nối → `npm ci` ở đó lỗi EPERM; đóng gói ở máy khác/cloud rồi chép `.mcpb` về.
@@ -781,3 +783,56 @@ Ctrl+F tìm kiếm · Ctrl+N thêm Chrome · Ctrl+O đổi kiểu hiển thị �
 - [ ] ⚠️ Đã biết (test cổng MCP 19/11/2026): Chrome VỪA MỞ (mới trang trống) có thể CHƯA khóa file → nhãn "Đang mở" hiện chậm tới khi profile duyệt web. Nếu nghiệm thu thấy rõ: cho app gộp thêm `listChromeWindows()` (đã có sẵn trong `chromeWindows.js`, ~1 giây PowerShell/lần — chạy thưa, vd mỗi 15 giây hoặc ngay sau khi mở Chrome, KHÔNG chạy mỗi 4 giây)
 - [ ] Bấm nhãn "Đang mở" của Profile 1 khi Profile 14 cũng mở → nhảy đúng Profile 1; cửa sổ phóng to giữ nguyên; cửa sổ thu nhỏ được bung ra
 - [ ] Bấm mở 1 Chrome đang mở → cửa sổ đó nhảy lên trước (toast "đã đưa cửa sổ lên trước")
+
+---
+
+## 20. CẬP NHẬT v1.11.0 (khóa mở Chrome bằng mã + cảnh báo khi mở)
+
+> Nhu cầu (Sếp, 11/2026): máy dùng chung ở công ty — khóa mở Chrome trên app bằng mã; CEO cấp mã cho từng nhóm nhân sự tạo (gửi tay qua Fiine); mã riêng của CEO là "cửa sau" mở được mọi khóa; cảnh báo pop-up mỗi lần mở (nhân sự tự đặt, có mã bật/tắt, CEO reset được); phát hiện file bị sửa để kiểm soát.
+
+### 20.1 Quy tắc đã chốt với Sếp
+- Mã CEO ≥ 8 ký tự, đặt trên **từng máy** lần đầu bật (Cài đặt → "Khóa Chrome bằng mã"), kèm **mã khẩn cấp** 20 ký tự hiện 1 lần (quên mã CEO / khôi phục khi khóa toàn bộ). **Không bao giờ** đưa mã CEO hay mã băm vào repo (repo Public).
+- Khóa **nhóm** (nhóm cha có sẵn) hoặc khóa **riêng 1 Chrome**; **1 Chrome chỉ 1 lớp khóa** (`ONE_LAYER`). Khóa nhóm = khóa các Chrome đang gắn nhóm đó lúc khóa; Chrome vào/ra nhóm khóa sau đó phải qua mã nhóm (`lock-add-member` / `lock-remove-member`, tự đồng bộ `config.json`).
+- Mã nhóm/mã riêng: app tự tạo 6 số (hoặc CEO tự nhập), hiện 1 lần + tin nhắn Fiine. Chỉ lưu bản băm scrypt (N=16384).
+- Mở khóa **tới khi tắt Chrome đó**: `lockService.tick()` — 45 giây đầu không xét; sau đó đọc danh sách cửa sổ Chrome (`listChromeWindows`, tối đa 15 giây/lần): không còn cửa sổ của profile **2 lần liên tiếp** → khóa lại (Chrome chạy ngầm vẫn giữ file nhưng đã đóng cửa sổ cũng tính là tắt). Không đọc được cửa sổ thì dựa vào khóa file (`getLoadedProfileDirs`). Trạng thái mở khóa chỉ nằm trong bộ nhớ app: tắt app hoặc "Đóng tất cả Chrome" = khóa lại hết (cửa sổ Chrome đang mở vẫn dùng tiếp được); nhập đúng mã mà Hủy ở pop-up cảnh báo → khóa lại ngay.
+- Cảnh báo cho từng Chrome / từng nhóm, nhân sự tự đặt kèm mã cảnh báo (4–32 ký tự). Sửa/tắt: mã cảnh báo, mã khóa của chính mục đó, hoặc mã CEO. Cảnh báo nhóm áp cho Chrome đang gắn nhóm đó (theo `config.json`) + nhóm khóa của Chrome.
+- Chrome đang khóa (chưa mở khóa): ẩn ghi chú, Gmail/email, lịch sử, cookie/mạng xã hội; không đổi tên/ghi chú/nhóm (chỉ ghim được); không xóa profile, không tạo shortcut Desktop (khóa thì xóa shortcut); cổng MCP không mở được.
+- Sai mã 5 lần / mục → chặn mục đó 5 phút (`TOO_MANY`), tính riêng theo nhóm, Chrome, mã CEO, cảnh báo; sai tổng 15 lần mọi mục → chặn mọi lần nhập mã 5 phút (mã CEO mở được mọi mục nên không dò được bằng cách đổi mục). Chưa nhập mã (vd xóa nhóm khóa lần đầu) không tính là sai.
+- Cảnh báo MỚI trên mục chưa khóa luôn phải kèm mã cảnh báo (kể cả CEO) — kiểm trước khi kiểm mã, để lệnh cảnh báo không thành chỗ dò mã CEO. Mã nhóm là mã khóa của các Chrome trong nhóm (sửa được cảnh báo riêng của chúng). Xóa nhóm có cảnh báo có mã cần mã cảnh báo hoặc mã CEO; không đổi tên nhóm đè/gộp vào nhóm đang khóa hoặc có cảnh báo.
+
+### 20.2 Kiến trúc
+- `src/locks.js` — lõi **thuần** (chép sang `mcp-server/server/shared/`, `npm run sync`): băm/kiểm mã, thao tác trạng thái (trả trạng thái MỚI), `lockOf`, `checkOpenCode`, `warningsFor`, `publicView` (không có mã băm), `fiineMessage`, niêm phong (`canonical` + HMAC-SHA256), `createLockStore` (đọc/ghi/kiểm/khôi phục), `evaluateUnverified` (kiểm không có khóa bí mật — dùng cho MCP).
+- `src/lockService.js` — dịch vụ cho app (không require Electron, test được): giữ trạng thái đã nạp, danh sách Chrome đang mở khóa, bộ chặn đoán mã, `redactProfile`, đồng bộ nhóm khóa ↔ `config.json`.
+- `main.js` — `initLockService()` (sau `ensureElevated`), `lockKeyStore` (khóa bí mật + bản neo trong `<userData>/lock.key`, mã hóa `safeStorage` = DPAPI), `lockSealStore` (`reg query/add` giá trị `LockSeal` = `counter:mac`), `lockedBlock(dir)`. Cửa sổ chặn chuyển trang / mở cửa sổ mới (`will-navigate`, `setWindowOpenHandler`). Mọi IPC nhận thư mục/đường dẫn profile đều kiểm khóa (kiểm cả thư mục suy từ đường dẫn — `blockedAny`; so thư mục không phân biệt hoa thường) (mở, đưa cửa sổ lên, mở link, mở hàng loạt, lịch sử, Gmail, cookie, social, debug, xóa, tạo shortcut, lưu cấu hình, xuất Excel ẩn ghi chú, tạo profile bỏ nhóm khóa).
+- `renderer/locksUi.js` (nạp TRƯỚC `renderer.js`) — hộp thoại chung `upmDialog` / `askCode`, `saveProfileCfg` (thay mọi `window.app.saveProfileConfig`, tự hỏi mã nhóm khi đụng nhóm khóa), cổng mở `openGate` / `batchGate`, hộp thoại "Bảo vệ" cho Chrome (nút khiên trên thẻ) và cho nhóm (nút khiên cạnh tên nhóm ở cột trái), mục Cài đặt, thanh vàng/đỏ, làm mới khi có sự kiện `locks-changed`.
+
+### 20.3 Lưu trữ + phát hiện sửa file
+- 4 nơi: file chính `%APPDATA%\chrome-manager-upmedia\locks.json` · bản dự phòng `%LOCALAPPDATA%\UP Media\Chrome Manager\locks-backup.json` (2 bản này ký HMAC-SHA256) · **bản neo** = toàn bộ trạng thái mới nhất cất cùng khóa bí mật trong `<userData>/lock.key` (chuỗi JSON `{v:2,k,s}`, mã hóa `safeStorage` = DPAPI) · dấu niêm phong registry `HKCU\Software\UP Media\Chrome Manager\LockSeal` = `counter:mac` (chỉ để cổng MCP kiểm, vì MCP không giải mã được DPAPI). Mỗi lần ghi: tăng bộ đếm → file chính → dự phòng → bản neo → registry.
+- Khi nạp (`createLockStore().load()`, không bao giờ ném lỗi): bản mới nhất đáng tin = bản neo (hoặc file có chữ ký đúng mới hơn — máy tắt giữa lúc ghi). File nào lệch → ghi lại từ bản đó, sự kiện `tamper-restored`, thanh vàng. Registry mới hơn cả bản neo (chép đè bản cũ ở mọi nơi) → khóa toàn bộ, mã CEO lấy từ bản neo. Mất khóa bí mật → khóa toàn bộ; chỉ tin mã CEO trong file khi 2 bản giống hệt và khớp registry, không thì `canReset` → "Đặt lại từ đầu" (`lock-reset`: mã CEO mới, bỏ khóa cũ, giữ nhật ký + `tamper-reset`).
+- Khôi phục (`lock-recover`) KHÔNG BAO GIỜ kiểm mã bằng mã CEO trong file chưa kiểm được (kiểm tra độc lập 19/11/2026 bắt được lỗi này ở bản nháp: sửa file cài mã CEO giả rồi khôi phục bằng mã giả). Lỗi đọc/ghi bất ngờ → `lockService.reload()` khóa toàn bộ (`loadError`), không bao giờ coi như chưa bật.
+
+### 20.4 Test
+- `test/locks.test.js` (20) + `test/lockService.test.js` (10) — `npm test` của app: 56 test.
+- Giao diện: kịch bản Playwright 21 bước chạy `renderer/` thật với phần nền giả lập theo `main.js` + lõi khóa thật (không nằm trong repo; dựng lại khi cần: nạp `index.html` qua `file://`, `addInitScript` tạo `window.app` gọi về Node qua `exposeFunction`).
+- Cổng MCP 1.3.0: 33 test (Mục 18).
+- Kiểm tra độc lập (19/11/2026, trợ lý riêng chỉ đọc đặc tả, không đọc báo cáo của người làm): 4 lỗi nặng + 8 lỗi vừa đã sửa và có test; các điểm còn lại ghi ở 20.5.
+
+### 20.5 Giới hạn đã biết
+- **Khóa mềm:** app chặn mở qua app, qua shortcut Desktop (xóa khi khóa) và qua Claude; KHÔNG chặn được người mở Chrome trực tiếp rồi chọn profile trong menu hồ sơ / bộ chọn hồ sơ của Chrome, danh sách nhảy trên taskbar, hay chạy `chrome.exe --profile-directory`. Muốn cách ly cứng: tách tài khoản Windows cho từng người, hoặc (nâng cấp sau) để Chrome khóa trong thư mục User Data riêng để không hiện trong menu hồ sơ.
+- Cùng tài khoản Windows, người rành kỹ thuật đọc được file khóa và dò mã 6 số offline trong vài giờ; giải mã được DPAPI để giả bản neo; xóa sạch cả 4 nơi thì app về "chưa bật" (Sếp nhận ra vì mã CEO không còn dùng được, Cài đặt hiện "Bật khóa"). Ghi chú gốc vẫn nằm trong `config.json` (ẩn trên giao diện, không mã hóa).
+- Bộ chặn đoán mã nằm trong bộ nhớ: tắt mở lại app thì đếm lại từ đầu.
+- Gỡ một Chrome khỏi nhóm CHƯA khóa thì Chrome đó hết nhận cảnh báo của nhóm (cảnh báo là nhắc nhở; muốn chặn thì khóa nhóm).
+- Mỗi máy (mỗi tài khoản Windows) có dữ liệu khóa + mã CEO riêng; không đồng bộ giữa các máy.
+- Shortcut Desktop chỉ xóa theo tên hiện tại; shortcut đặt tên cũ hoặc Chrome tự tạo ("… - Chrome.lnk") có thể còn. Ép cài tiện ích (nhân bản ra tất cả) vẫn tới Chrome đang khóa.
+- Cổng MCP không đọc được `lock.key` (DPAPI) nên chỉ so dấu niêm phong + lấy khóa theo cả 2 file; không biết Chrome nào đang được mở khóa trong app → luôn từ chối Chrome có khóa.
+
+### 20.6 Cần nghiệm thu trên Windows thật (v1.11.0)
+- [ ] Cài đặt → Bật khóa → đặt mã CEO → hiện mã khẩn cấp; tắt mở lại app vẫn "Đang bật" (DPAPI + registry chạy đúng)
+- [ ] Khóa 1 nhóm → hiện mã 6 số + tin Fiine; shortcut Desktop của các Chrome trong nhóm bị xóa
+- [ ] Bấm Mở Chrome trong nhóm → hỏi mã → mở; đóng hẳn cửa sổ Chrome đó → khoảng 1 phút sau thẻ trở lại khóa
+- [ ] "Mở tất cả" trong nhóm khóa → hỏi mã 1 lần cho cả nhóm
+- [ ] Sai mã 5 lần → báo chờ 5 phút
+- [ ] Cảnh báo nhóm + cảnh báo Chrome → pop-up mỗi lần mở; tắt cần mã cảnh báo
+- [ ] Tắt app, xóa `locks.json` (hoặc sửa bằng Notepad) → mở lại app → thanh vàng "đã khôi phục", khóa còn nguyên
+- [ ] Tắt app, đổi tên `lock.key` thành `lock.key.bak` → mở lại → thanh đỏ, khóa toàn bộ → nhập mã CEO → khôi phục, khóa cũ còn (sau đó xóa `lock.key.bak`)
+- [ ] Cổng MCP 1.3.0: "Mở Chrome <tên Chrome đang khóa>" → Claude báo đang khóa, không mở; Chrome có cảnh báo → Claude đọc cảnh báo trước khi mở
