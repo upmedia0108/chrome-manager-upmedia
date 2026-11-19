@@ -22,6 +22,17 @@ function lockLabel(lock) {
   return 'Khóa toàn bộ';
 }
 function isProfileBlocked(p) { return !!(p && p.lock && !p.unlocked); }
+// Chrome có cảnh báo đang bật (của chính nó hoặc của nhóm nó thuộc)
+function hasActiveWarning(p) {
+  if (!p) return false;
+  const W = lockStatus.warnings || {}, on = w => !!(w && w.enabled && w.text);
+  if (on((W.chromes || {})[p.profileDirectory])) return true;
+  const groups = new Set(p.groups || []);
+  if (p.lock && p.lock.type === 'group') groups.add(p.lock.group);
+  return [...groups].some(g => on((W.groups || {})[g]));
+}
+// Mở Chrome này có phải qua hộp nhập mã / pop-up cảnh báo không
+function profileNeedsGate(dir) { const p = profileOf(dir); return isProfileBlocked(p) || hasActiveWarning(p); }
 function lockErrorText(res) {
   if (res && Array.isArray(res.conflicts) && res.conflicts.length) {
     return `Có ${res.conflicts.length} Chrome đang có khóa khác (mỗi Chrome chỉ 1 lớp khóa): ${res.conflicts.map(nameOfDir).join(', ')}. Gỡ khóa đó trước hoặc bỏ Chrome đó khỏi nhóm.`;
@@ -518,7 +529,8 @@ function decorateCardLock(card, profile) {
     b.title = profile.unlocked ? 'Đang mở khóa — tự khóa lại khi tắt Chrome này' : 'Chrome đang khóa — bấm để xem bảo vệ';
     b.innerHTML = `${profile.unlocked ? UNLOCK_SVG : LOCK_SVG}<span>${eh(profile.lock.type === 'group' ? profile.lock.group : lockLabel(profile.lock))}</span>`;
     b.addEventListener('click', e => { e.stopPropagation(); openProtectChrome(profile.profileDirectory); });
-    header.insertBefore(b, header.querySelector('.pin-toggle'));
+    const badges = header.querySelector('.card-badges') || header;
+    badges.insertBefore(b, badges.querySelector('.pin-toggle'));
   }
   const actions = card.querySelector('.card-actions');
   if (actions) {

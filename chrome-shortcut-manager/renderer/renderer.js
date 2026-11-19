@@ -21,6 +21,8 @@ const CHANGELOG = [
     'Chrome đang khóa: ẩn ghi chú, Gmail, lịch sử, mạng xã hội; không đổi tên, không xóa, không tạo shortcut Desktop; Claude cũng không mở được',
     'Cảnh báo pop-up mỗi lần mở Chrome, đặt riêng cho từng Chrome và từng nhóm, có mã cảnh báo để người khác không tắt được (mã CEO đặt lại được)',
     'Phát hiện file khóa bị sửa / xóa / chép đè bản cũ: tự khôi phục từ bản dự phòng (thanh vàng) hoặc khóa toàn bộ tới khi nhập mã CEO (thanh đỏ). Nhập sai mã 5 lần bị chặn 5 phút. Nhật ký bảo vệ xem bằng mã CEO',
+    'Chrome có khóa hoặc cảnh báo chỉ mở bằng nút "Mở" — lỡ bấm vào vùng trắng của thẻ không bật hộp nhập mã / pop-up (thẻ thường vẫn bấm vùng trắng để mở)',
+    'Tên Chrome trên thẻ luôn chiếm ít nhất nửa dòng; các nhãn (khóa, ghim, đang mở, shortcut) tự xuống dòng ở nửa bên phải thay vì ép tên bị cắt',
   ] },
   { v: '1.10.6', items: [
     'Sửa lỗi nhãn "Đang mở" chỉ hiện 1 Chrome dù mở nhiều: nay nhận đúng TỪNG Chrome đang mở (kiểm tra file dữ liệu Chrome đang giữ) — nhanh, nhẹ máy hơn hẳn (không còn gọi PowerShell mỗi 4 giây)',
@@ -864,6 +866,7 @@ async function buildCard(profile) {
           </div>
         </div>
       </div>
+      <div class="card-badges">
       <button class="pin-toggle ${profile.pinned ? 'pinned' : ''}" data-dir="${ea(profile.profileDirectory)}" title="${profile.pinned ? 'Bỏ ghim' : 'Ghim lên đầu trang'}" aria-label="Ghim">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="${profile.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 17v5M9 10.76V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v5.76l2 3.24H7l2-3.24Z"/></svg>
       </button>
@@ -872,6 +875,7 @@ async function buildCard(profile) {
       </button>
       <div class="card-status ${profile.hasShortcut ? 'has' : 'none'}">
         <span class="status-dot"></span>${profile.hasShortcut ? 'Có shortcut' : 'Chưa có'}
+      </div>
       </div>
     </div>
 
@@ -1098,6 +1102,8 @@ async function buildCard(profile) {
   card.classList.add('card-clickable');
   card.addEventListener('click', e => {
     if (e.target.closest('button, input, textarea, select, a, label, kbd, .group-dropdown, .groups-row, .account-badges, .card-actions, .card-form, .cache-info, .notes-section, .card-status')) return;
+    // v1.11: Chrome có khóa / cảnh báo chỉ mở bằng nút "Mở" — lỡ bấm vào thẻ không bật hộp nhập mã / pop-up cảnh báo
+    if (profileNeedsGate(profile.profileDirectory)) { showToast('Chrome này có khóa hoặc cảnh báo — bấm nút "Mở" để mở', 'info'); return; }
     openProfileFromUI(profile.profileDirectory, card);
   });
 
